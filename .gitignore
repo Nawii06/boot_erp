@@ -1,0 +1,37 @@
+# Credentials and local settings
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.codex/
+.vscode/
+
+# Private operational data (store outside repo whenever possible)
+/private/
+/project_sources/
+/uploads/
+/storage/
+/backups/
+/exports/
+/imports/
+/logs/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+
+# Generated files
+node_modules/
+.next/
+dist/
+build/
+coverage/
+test-results/
+playwright-report/
+__pycache__/
+.venv/
+.pytest_cache/
+.DS_Store
+Thumbs.db
