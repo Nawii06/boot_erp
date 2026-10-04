@@ -1,0 +1,25 @@
+{
+  "name": "boot-erp-toolchain-check",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Phase 00 tool compatibility and isolated development database checks; not the ERP application",
+  "type": "module",
+  "engines": { "node": "24.21.0", "npm": "11.19.0" },
+  "scripts": {
+    "check": "node check.mjs",
+    "typecheck": "tsc --noEmit",
+    "check:migrations": "node migration-check.mjs"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.3",
+    "pg": "8.23.1",
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1",
+    "node-pg-migrate": "9.0.0",
+    "typescript": "5.9.3"
+  }
+}

@@ -2,16 +2,16 @@
 
 산공과제·비교과 프로그램의 예산, 사용신청, 청구, 증빙, 대학 ERP 실청구 및 지급·정산을 관리하기 위한 웹 ERP 프로젝트입니다.
 
-**현재 상태: 구축계획·설계 초안 작성. 애플리케이션은 아직 구현되지 않았습니다.**
+**현재 상태: 00단계 기술 확정·개발환경 준비 완료. 애플리케이션은 아직 구현되지 않았습니다.**
 
-기준일: 2026-10-04 / 시간대: Asia/Seoul / 문서 버전: 0.1
+기준일: 2026-10-05 / 시간대: Asia/Seoul / 문서 버전: 0.2
 
 ## 시작하기
 
 1. [전체 구축계획](docs/00-overview.md)과 [단계별 로드맵](docs/04-roadmap.md)을 읽습니다.
 2. [현재 진행상황](docs/STATUS.md)에서 다음 작업과 미결정을 확인합니다.
 3. VS Code에서 저장소를 열고 [Codex 작업 안내](docs/05-codex-runbook.md)에 따라 **한 단계씩** 작업합니다.
-4. 첫 실행 대상은 [00단계: 환경·정책 확정](docs/stages/00-discovery.md)입니다.
+4. [확정 환경·실행 방법](docs/toolchain.md)을 확인합니다. 다음 대상은 [01단계: 개발 기반](docs/stages/01-foundation.md)이며 아직 시작하지 않았습니다.
 
 ## 사용자와 범위
 
@@ -51,4 +51,12 @@
 
 ## 개발 명령
 
-아직 실행 코드·패키지·테스트 명령은 없습니다. 00단계에서 기술과 버전을 결정하고, 01단계에서 실제 작동하는 설치·실행·테스트 명령을 이 문서에 추가합니다.
+확정 구성은 Next.js·TypeScript·PostgreSQL, Drizzle ORM/pg, node-pg-migrate입니다. 버전·DB 시작/정지는 [확정 환경](docs/toolchain.md)을 참조합니다. 아래는 준비된 PC의 00단계 도구 검증이며 앱 실행 명령이 아닙니다.
+
+```powershell
+.\scripts\toolchain.cmd run typecheck
+.\scripts\toolchain.cmd run check
+.\scripts\toolchain.cmd run check:migrations
+```
+
+check는 빈 개발·시험 DB 준비 검사용이므로 01단계에서 업무 테이블 생성 후 그대로 사용하지 않습니다. 앱·빌드·실제 업무 마이그레이션은 01단계에서 구성·검증합니다.
