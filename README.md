@@ -2,16 +2,16 @@
 
 산공과제·비교과 프로그램의 예산, 사용신청, 청구, 증빙, 대학 ERP 실청구 및 지급·정산을 관리하기 위한 웹 ERP 프로젝트입니다.
 
-**현재 상태: 00단계 기술 확정·개발환경 준비 완료. 애플리케이션은 아직 구현되지 않았습니다.**
+**현재 상태: 01단계 개발 기반 구현·로컬 검수 완료. 실제 로그인과 업무 기능은 후속 단계입니다.**
 
-기준일: 2026-10-05 / 시간대: Asia/Seoul / 문서 버전: 0.2
+기준일: 2026-10-05 / 시간대: Asia/Seoul / 문서 버전: 0.3
 
 ## 시작하기
 
 1. [전체 구축계획](docs/00-overview.md)과 [단계별 로드맵](docs/04-roadmap.md)을 읽습니다.
 2. [현재 진행상황](docs/STATUS.md)에서 다음 작업과 미결정을 확인합니다.
 3. VS Code에서 저장소를 열고 [Codex 작업 안내](docs/05-codex-runbook.md)에 따라 **한 단계씩** 작업합니다.
-4. [확정 환경·실행 방법](docs/toolchain.md)을 확인합니다. 다음 대상은 [01단계: 개발 기반](docs/stages/01-foundation.md)이며 아직 시작하지 않았습니다.
+4. [개발 기반 실행·DB 안내](docs/foundation.md)를 따라 실행합니다. 다음 대상은 [02단계](docs/stages/02-access-projects.md)이며 로그인·열람 정책 확인이 필요합니다.
 
 ## 사용자와 범위
 
@@ -51,12 +51,27 @@
 
 ## 개발 명령
 
-확정 구성은 Next.js·TypeScript·PostgreSQL, Drizzle ORM/pg, node-pg-migrate입니다. 버전·DB 시작/정지는 [확정 환경](docs/toolchain.md)을 참조합니다. 아래는 준비된 PC의 00단계 도구 검증이며 앱 실행 명령이 아닙니다.
+확정 구성은 Next.js·TypeScript·PostgreSQL, Drizzle ORM/pg, node-pg-migrate입니다. 버전·DB 시작/정지는 [확정 환경](docs/toolchain.md), 새 PC의 DB·환경변수 설정은 [01 인수인계](docs/foundation.md)를 참조합니다. 준비된 PC의 저장소 루트에서:
 
 ```powershell
-.\scripts\toolchain.cmd run typecheck
-.\scripts\toolchain.cmd run check
-.\scripts\toolchain.cmd run check:migrations
+.\scripts\app.cmd ci --ignore-scripts --no-fund
+.\scripts\app.cmd run local -- migrate
+.\scripts\app.cmd run local -- migrate:test
+.\scripts\app.cmd run local -- seed
+.\scripts\app.cmd run local -- dev
 ```
 
-check는 빈 개발·시험 DB 준비 검사용이므로 01단계에서 업무 테이블 생성 후 그대로 사용하지 않습니다. 앱·빌드·실제 업무 마이그레이션은 01단계에서 구성·검증합니다.
+`http://127.0.0.1:3000`에서 준비 화면을 확인합니다. 로그인 우회와 파일 업로드는 제공하지 않습니다. 검수 명령:
+
+```powershell
+.\scripts\app.cmd run typecheck
+.\scripts\app.cmd test
+.\scripts\app.cmd run local -- test:db
+.\scripts\app.cmd run build
+.\scripts\app.cmd run local -- start
+# 서버 실행 중 별도 터미널
+.\scripts\app.cmd run test:http
+.\scripts\app.cmd run check:docs
+```
+
+검수 시 dev 3101, start 3102에서도 실행했습니다. 포트 지정과 일반 npm 실행은 [인수인계](docs/foundation.md)에 있습니다. `tools/toolchain-check`는 00단계 도구 검증 이력이며 빈 DB 검사 `check`는 현재 업무 테이블이 있는 DB에 실행하지 않습니다. 실제 실행 결과·한계는 [01 작업기록](docs/history/2026-10-05-phase-01.md)을 참조합니다.

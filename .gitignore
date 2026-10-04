@@ -30,6 +30,8 @@ build/
 coverage/
 test-results/
 playwright-report/
+*.tsbuildinfo
+next-env.d.ts
 __pycache__/
 .venv/
 .pytest_cache/

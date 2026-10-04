@@ -1,0 +1,36 @@
+{
+  "name": "boot-erp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.21.0", "npm": "11.19.0" },
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "node --conditions=react-server --test tests/unit.test.ts",
+    "test:db": "node --conditions=react-server --test tests/database.test.ts",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:seed": "node --conditions=react-server scripts/seed.ts",
+    "local": "node scripts/local.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "test:http": "node scripts/check-http.mjs"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.3",
+    "next": "16.3.8",
+    "pg": "8.23.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "node-pg-migrate": "9.0.0",
+    "typescript": "5.9.3"
+  }
+}
