@@ -26,7 +26,9 @@
 - Google OAuth client/secret 생성·외부 로그인 연결·DB/코드 변경·운영 배포·main 병합을 수행하지 않았다. Notion 변경 및 홈페이지/대학 ERP 업무자료 자동 연동도 없다.
 - 과거 D/P 표와 01 검수 기록은 당시 이력으로 보존한다. 최신 상태는 AC 기록과 STATUS를 따른다.
 
-문서 검수 결과: `scripts/app.cmd run check:docs` 통과(Markdown 38개, 상대 링크 154개, 누락 0). `git diff --check` 공백 검사 통과. 변경 범위는 정책·설계·진행/연혁 문서이며 실제 개인정보·인증정보를 추가하지 않았다. 애플리케이션 테스트는 코드 변경이 없어 재실행하지 않았다. 원격 반영 결과는 확인 후 기록한다.
+문서 검수 결과: `scripts/app.cmd run check:docs` 통과(Markdown 38개, 상대 링크 154개, 누락 0). `git diff --check` 공백 검사 통과. 변경 범위는 정책·설계·진행/연혁 문서이며 실제 개인정보·인증정보를 추가하지 않았다. 애플리케이션 테스트는 코드 변경이 없어 재실행하지 않았다.
+
+원격 반영: `git push -u origin codex/phase-02-policy` 성공. 정책 커밋은 `b663f112849278cc97b3668f5f98c58be6c9194e`이며 `git ls-remote --heads origin codex/phase-02-policy`의 SHA와 일치했다. 이 확인 결과는 후속 문서 커밋으로 보존하며 최종 SHA는 작업 보고에 명시한다. main 병합은 수행하지 않았다.
 
 ## 다음 작업
 
