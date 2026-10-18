@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { assertLocalDatabase } from './db-config.mjs';
+import { loadGoogleCredentials } from './google-config.mjs';
 
 // Optional helper for the phase 00 Windows setup. Secrets stay outside the repository.
 const mode = process.argv[2];
@@ -22,6 +23,12 @@ try {
   };
   const env = { ...process.env, NEXT_TELEMETRY_DISABLED: '1' };
   for (const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','TEST_DATABASE_URL','TEST_MIGRATION_DATABASE_URL']) delete env[key];
+  for (const key of ['GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','GOOGLE_REDIRECT_URI','APP_ORIGIN','BOOT_ERP_GOOGLE_OAUTH_FILE']) delete env[key];
+  if (['dev','start'].includes(mode) && process.env.BOOT_ERP_GOOGLE_OAUTH_FILE) {
+    const google = await loadGoogleCredentials(process.env.BOOT_ERP_GOOGLE_OAUTH_FILE);
+    Object.assign(env, { GOOGLE_CLIENT_ID: google.clientId, GOOGLE_CLIENT_SECRET: google.clientSecret,
+      GOOGLE_REDIRECT_URI: google.redirectUri, APP_ORIGIN: google.origin });
+  }
   if (mode.startsWith('migrate')) env.MIGRATION_DATABASE_URL = url(mode === 'migrate' ? 'dev_migration' : 'test_migration', mode === 'migrate' ? 'boot_erp_dev' : 'boot_erp_test', 'owner');
   else if (mode === 'test:db') {
     env.TEST_DATABASE_URL = url('test','boot_erp_test','app');

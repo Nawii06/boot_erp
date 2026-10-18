@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { Pool, Client } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq } from 'drizzle-orm';
@@ -22,8 +22,14 @@ test('real PostgreSQL foundation integration (isolated disposable schema)', asyn
   await owner.connect();
   try {
     await owner.query(`CREATE SCHEMA ${schema}`); created = true;
-    await t.test('empty DB schema migration and repeat application', async () => {
+    await t.test('foundation then auth migration preserves an existing user; repeat is a no-op', async () => {
+      assert.equal(await migrate(ownerUrl, schema, 1), 1);
+      const legacy = randomUUID();
+      await owner.query(`INSERT INTO ${schema}.users(id,role) VALUES($1,'researcher')`, [legacy]);
       assert.equal(await migrate(ownerUrl, schema), 1);
+      assert.deepEqual((await owner.query(`SELECT role,active,auth_subject FROM ${schema}.users WHERE id=$1`, [legacy])).rows,
+        [{ role: 'researcher', active: false, auth_subject: null }]);
+      assert.equal((await owner.query(`SELECT count(*)::int AS n FROM ${schema}.login_accounts`)).rows[0].n, 0);
       assert.equal(await migrate(ownerUrl, schema), 0);
     });
     await owner.query(`GRANT USAGE ON SCHEMA ${schema} TO boot_erp_test_app`);
@@ -124,6 +130,55 @@ test('real PostgreSQL foundation integration (isolated disposable schema)', asyn
       await Promise.all([auditedCommand(pool, command(), work), auditedCommand(pool, command(), work)]);
       assert.equal((await pool.query('SELECT name FROM projects WHERE id=$1', [project])).rows[0].name, '2');
     });
+    const identity = randomUUID();
+    await t.test('pre-registered email and provider subject uniqueness; no automatic activation', async () => {
+      await pool.query("INSERT INTO login_accounts(user_id,email) VALUES($1,'researcher@example.invalid'),($2,'staff@example.invalid')", [researcher, actor]);
+      await assert.rejects(pool.query("INSERT INTO login_accounts(user_id,email) VALUES($1,'researcher@example.invalid')", [pi]), { code: '23505' });
+      await assert.rejects(pool.query("INSERT INTO login_accounts(user_id,email) VALUES($1,'Mixed@example.invalid')", [pi]), { code: '23514' });
+      await pool.query("INSERT INTO auth_identities(id,user_id,provider_key,issuer,subject,linked_by) VALUES($1,$2,'google','https://accounts.google.com','synthetic-subject',$3)", [identity, researcher, actor]);
+      assert.equal((await pool.query('SELECT enabled FROM auth_identities WHERE id=$1', [identity])).rows[0].enabled, false);
+      await assert.rejects(pool.query("INSERT INTO auth_identities(id,user_id,provider_key,issuer,subject,linked_by) VALUES($1,$2,'google','https://accounts.google.com','synthetic-subject',$3)", [randomUUID(), actor, actor]), { code: '23505' });
+    });
+    await t.test('manual ownership history survives email change and rejects rewriting', async () => {
+      const proof = randomUUID();
+      await pool.query("INSERT INTO email_ownership_checks(id,user_id,email,outcome,method,checked_by) VALUES($1,$2,'researcher@example.invalid','verified','synthetic manual check',$3)", [proof, researcher, actor]);
+      await assert.rejects(pool.query("UPDATE email_ownership_checks SET outcome='rejected' WHERE id=$1", [proof]), { code: '55000' });
+      await assert.rejects(pool.query('DELETE FROM email_ownership_checks WHERE id=$1', [proof]), { code: '55000' });
+      await pool.query("UPDATE login_accounts SET email='changed@example.invalid' WHERE user_id=$1", [researcher]);
+      assert.equal((await pool.query('SELECT email FROM email_ownership_checks WHERE id=$1', [proof])).rows[0].email, 'researcher@example.invalid');
+      assert.equal((await pool.query('SELECT 1 FROM email_ownership_checks c JOIN login_accounts a ON a.user_id=c.user_id AND a.email=c.email WHERE a.user_id=$1', [researcher])).rowCount, 0);
+    });
+    await t.test('concurrent session slots cap at two, reject cross-user identity and preserve revoked history', async () => {
+      const hash = () => createHash('sha256').update(randomUUID()).digest('hex');
+      const insert = (slot: number, userId = researcher, hours = 8, token = hash()) => pool.query(
+        "INSERT INTO auth_sessions(token_hash,user_id,identity_id,slot,auth_version,expires_at) VALUES($1,$2,$3,$4,0,CURRENT_TIMESTAMP+($5 * INTERVAL '1 hour'))", [token, userId, identity, slot, hours]);
+      const results = await Promise.allSettled([insert(1), insert(2), insert(1)]);
+      assert.equal(results.filter(r => r.status === 'fulfilled').length, 2);
+      assert.equal(results.filter(r => r.status === 'rejected' && r.reason.code === '23505').length, 1);
+      await assert.rejects(insert(3), { code: '23514' });
+      await assert.rejects(insert(1, actor), { code: '23503' });
+      await assert.rejects(insert(1, researcher, 9), { code: '23514' });
+      await assert.rejects(insert(1, researcher, 8, 'raw-session-token'), { code: '23514' });
+      await pool.query('UPDATE auth_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE user_id=$1 AND slot=1', [researcher]);
+      await insert(1);
+      assert.equal((await pool.query('SELECT count(*)::int AS n FROM auth_sessions WHERE user_id=$1', [researcher])).rows[0].n, 3);
+      assert.equal((await pool.query('SELECT count(*)::int AS n FROM auth_sessions WHERE user_id=$1 AND revoked_at IS NULL', [researcher])).rows[0].n, 2);
+    });
+    await t.test('account audit needs no project, is append-only, and fails atomically with account updates', async () => {
+      const requestId = randomUUID();
+      const addAudit = (client: import('pg').PoolClient, reason: string) => client.query(
+        "INSERT INTO account_audit_events(id,actor_id,target_user_id,request_id,action,reason,before_state,after_state) VALUES($1,$2,$3,$4,'account.probe',$5,'{}','{}')", [randomUUID(), actor, researcher, requestId, reason]);
+      await assert.rejects(transaction(pool, async client => {
+        await client.query('UPDATE login_accounts SET auth_version=1 WHERE user_id=$1', [researcher]);
+        await addAudit(client, '');
+      }), { code: '23514' });
+      assert.equal((await pool.query('SELECT auth_version FROM login_accounts WHERE user_id=$1', [researcher])).rows[0].auth_version, '0');
+      await transaction(pool, client => addAudit(client, 'synthetic audit'));
+      await assert.rejects(transaction(pool, client => addAudit(client, 'duplicate')), { code: '23505' });
+      await assert.rejects(pool.query('DELETE FROM account_audit_events'), { code: '55000' });
+      await assert.rejects(pool.query("UPDATE account_audit_events SET reason='changed'"), { code: '55000' });
+      await assert.rejects(pool.query('TRUNCATE account_audit_events'), { code: '42501' });
+    });
     await t.test('migration rerun on populated schema preserves data', async () => {
       const before = await owner.query('SELECT (SELECT count(*) FROM audit_events) AS audits,(SELECT count(*) FROM spend_cases) AS spends');
       assert.equal(await migrate(ownerUrl, schema), 0);
@@ -133,7 +188,7 @@ test('real PostgreSQL foundation integration (isolated disposable schema)', asyn
     await pool.end();
     if (created) {
       // Only this invocation's random schema, explicit objects, no shared tables or CASCADE.
-      for (const table of ['audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history']) await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);
+      for (const table of ['account_audit_events','auth_sessions','auth_identities','email_ownership_checks','login_accounts','audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history']) await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);
       await owner.query(`DROP FUNCTION IF EXISTS ${schema}.reject_foundation_rewrite()`);
       await owner.query(`DROP SCHEMA ${schema}`);
     }

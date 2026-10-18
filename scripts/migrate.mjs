@@ -3,17 +3,18 @@ import { runner } from 'node-pg-migrate';
 import { fileURLToPath } from 'node:url';
 import { requiredUrl, assertLocalDatabase } from './db-config.mjs';
 
-export async function migrate(connectionString, schema = 'public') {
+export async function migrate(connectionString, schema = 'public', count) {
   const database = new URL(connectionString).pathname.slice(1);
   if (!['boot_erp_dev','boot_erp_test'].includes(database)) throw new Error('Invalid migration target');
   assertLocalDatabase(connectionString, database, 'owner');
   if (schema !== 'public' && !/^foundation_test_[0-9a-f]{32}$/.test(schema)) throw new Error('Invalid schema');
+  if (count !== undefined && (schema === 'public' || !Number.isSafeInteger(count) || count < 1)) throw new Error('Migration count is limited to isolated test schemas');
   const client = new pg.Client({ connectionString });
   await client.connect();
   try {
     const result = await runner({ dbClient: client, dir: fileURLToPath(new URL('../migrations', import.meta.url)),
       direction: 'up', schema, migrationsSchema: schema, migrationsTable: 'migration_history',
-      checkOrder: true, singleTransaction: true, log: () => {} });
+      checkOrder: true, singleTransaction: true, count, log: () => {} });
     // Phase 00 default grants must not let runtime users rewrite migration history.
     await client.query(`REVOKE ALL ON TABLE ${schema}.migration_history FROM ${database}_app`);
     return result.length;

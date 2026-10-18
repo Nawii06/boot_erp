@@ -1,6 +1,6 @@
 import 'server-only';
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, boolean, timestamp, bigint, jsonb, unique, primaryKey, foreignKey, check, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, boolean, timestamp, bigint, jsonb, smallint, unique, uniqueIndex, primaryKey, foreignKey, check, index } from 'drizzle-orm/pg-core';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 export const people = pgTable('people', {
@@ -39,3 +39,58 @@ export const auditEvents = pgTable('audit_events', {
   beforeState: jsonb('before_state').notNull(), afterState: jsonb('after_state').notNull(), createdAt: createdAt(),
 }, t => [unique().on(t.actorId, t.requestId), foreignKey({ columns: [t.actorId, t.requestId], foreignColumns: [commandReceipts.actorId, commandReceipts.requestId] }),
   index('audit_project_time_idx').on(t.projectId, t.createdAt), check('audit_events_action_check', sql`length(btrim(${t.action})) BETWEEN 1 AND 200`), check('audit_events_reason_check', sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`)]);
+
+export const loginAccounts = pgTable('login_accounts', {
+  userId: uuid('user_id').primaryKey().references(() => users.id),
+  email: text('email').notNull().unique(), authVersion: bigint('auth_version', { mode: 'bigint' }).notNull().default(0n),
+  createdAt: createdAt(),
+}, t => [check('login_accounts_auth_version_check', sql`${t.authVersion} >= 0`),
+  check('login_accounts_email_check', sql`${t.email} = lower(btrim(${t.email})) AND length(${t.email}) BETWEEN 3 AND 254 AND ${t.email} ~ '^[^[:space:]@]+@[^[:space:]@]+$'`)]);
+
+export const emailOwnershipChecks = pgTable('email_ownership_checks', {
+  id: uuid('id').primaryKey(), userId: uuid('user_id').notNull().references(() => loginAccounts.userId),
+  email: text('email').notNull(), outcome: text('outcome').notNull(), method: text('method').notNull(),
+  checkedBy: uuid('checked_by').notNull().references(() => users.id),
+  checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
+}, t => [index('ownership_user_time_idx').on(t.userId, t.checkedAt),
+  check('ownership_outcome_check', sql`${t.outcome} IN ('verified','rejected')`),
+  check('ownership_method_check', sql`length(btrim(${t.method})) BETWEEN 1 AND 500`),
+  check('ownership_email_check', sql`${t.email} = lower(btrim(${t.email})) AND length(${t.email}) BETWEEN 3 AND 254 AND ${t.email} ~ '^[^[:space:]@]+@[^[:space:]@]+$'`)]);
+
+export const authIdentities = pgTable('auth_identities', {
+  id: uuid('id').primaryKey(), userId: uuid('user_id').notNull().references(() => loginAccounts.userId),
+  providerKey: text('provider_key').notNull(), issuer: text('issuer').notNull(), subject: text('subject').notNull(),
+  enabled: boolean('enabled').notNull().default(false), linkedBy: uuid('linked_by').notNull().references(() => users.id),
+  createdAt: createdAt(),
+}, t => [unique().on(t.providerKey, t.issuer, t.subject), unique().on(t.id, t.userId), index('identities_user_idx').on(t.userId),
+  check('identity_provider_check', sql`length(btrim(${t.providerKey})) BETWEEN 1 AND 100`),
+  check('identity_issuer_check', sql`length(btrim(${t.issuer})) BETWEEN 1 AND 1000`),
+  check('identity_subject_check', sql`length(btrim(${t.subject})) BETWEEN 1 AND 500`)]);
+
+export const authSessions = pgTable('auth_sessions', {
+  tokenHash: text('token_hash').primaryKey(), userId: uuid('user_id').notNull().references(() => loginAccounts.userId),
+  identityId: uuid('identity_id').notNull(), slot: smallint('slot').notNull(),
+  authVersion: bigint('auth_version', { mode: 'bigint' }).notNull(),
+  issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }), stepUpAt: timestamp('step_up_at', { withTimezone: true }),
+}, t => [foreignKey({ columns: [t.identityId, t.userId], foreignColumns: [authIdentities.id, authIdentities.userId] }),
+  uniqueIndex('sessions_live_slot_idx').on(t.userId, t.slot).where(sql`${t.revokedAt} IS NULL`),
+  check('session_hash_check', sql`${t.tokenHash} ~ '^[0-9a-f]{64}$'`), check('session_slot_check', sql`${t.slot} IN (1,2)`),
+  check('session_version_check', sql`${t.authVersion} >= 0`),
+  check('session_expiry_check', sql`${t.expiresAt} > ${t.issuedAt} AND ${t.expiresAt} <= ${t.issuedAt} + INTERVAL '8 hours'`),
+  check('session_seen_check', sql`${t.lastSeenAt} >= ${t.issuedAt} AND ${t.lastSeenAt} <= ${t.expiresAt}`),
+  check('session_revoked_check', sql`${t.revokedAt} IS NULL OR ${t.revokedAt} >= ${t.issuedAt}`),
+  check('session_step_up_check', sql`${t.stepUpAt} IS NULL OR (${t.stepUpAt} >= ${t.issuedAt} AND ${t.stepUpAt} <= ${t.expiresAt})`)]);
+
+export const accountAuditEvents = pgTable('account_audit_events', {
+  id: uuid('id').primaryKey(), actorId: uuid('actor_id').notNull().references(() => users.id),
+  targetUserId: uuid('target_user_id').notNull().references(() => users.id), requestId: uuid('request_id').notNull(),
+  action: text('action').notNull(), reason: text('reason').notNull(),
+  beforeState: jsonb('before_state').notNull(), afterState: jsonb('after_state').notNull(), createdAt: createdAt(),
+}, t => [unique().on(t.actorId, t.requestId), index('account_audit_target_time_idx').on(t.targetUserId, t.createdAt),
+  check('account_audit_action_check', sql`length(btrim(${t.action})) BETWEEN 1 AND 200`),
+  check('account_audit_reason_check', sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),
+  check('account_audit_before_check', sql`jsonb_typeof(${t.beforeState}) = 'object'`),
+  check('account_audit_after_check', sql`jsonb_typeof(${t.afterState}) = 'object'`)]);

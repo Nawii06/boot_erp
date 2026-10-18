@@ -9,12 +9,13 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "test": "node --conditions=react-server --test tests/unit.test.ts",
+    "test": "node --conditions=react-server --test tests/unit.test.ts tests/google-config.test.mjs",
     "test:db": "node --conditions=react-server --test tests/database.test.ts",
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "node --conditions=react-server scripts/seed.ts",
     "local": "node scripts/local.mjs",
     "check:docs": "node scripts/check-docs.mjs",
+    "check:google-config": "node scripts/google-config.mjs",
     "test:http": "node scripts/check-http.mjs"
   },
   "dependencies": {
