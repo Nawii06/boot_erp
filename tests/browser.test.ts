@@ -69,15 +69,54 @@ try{
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await as(pi);await expect(page.getByRole('button',{name:'동료 비공개 업무',exact:true})).toBeVisible();await expect(page.getByText('업무 등록',{exact:true})).toHaveCount(0);
   await as(staff);await expect(page.getByRole('button',{name:'계정 관리',exact:true})).toBeVisible();
+  console.log('Browser: start budget workflow');await page.getByRole('button',{name:'예산배정·변경',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'예산배정·변경',exact:true})).toBeVisible();
+  await page.getByLabel('예산 과제·비교과',{exact:true}).selectOption(project);
+  await page.getByText('분류코드 관리',{exact:true}).click();
+  const codeForm=page.locator('form').filter({has:page.getByRole('button',{name:'분류 등록 승인',exact:true})});
+  for(const [level,code,name,parent] of [['1','N91','가상 비목',''],['2','N91.01','가상 세목','N91'],['3','N91.01.001','가상 세세목','N91.01']]){
+    await codeForm.getByLabel('분류 단계',{exact:true}).selectOption(level);await codeForm.getByLabel('관리코드',{exact:true}).fill(code);await codeForm.getByLabel('분류명',{exact:true}).fill(name);
+    if(parent){const parentId=(await owner.query('SELECT id FROM budget_codes WHERE code=$1',[parent])).rows[0].id;await codeForm.getByLabel('부모 분류',{exact:true}).selectOption(parentId);}
+    await codeForm.getByLabel('처리 사유',{exact:true}).fill('가상 분류 검수');await codeForm.getByRole('button',{name:'분류 등록 승인',exact:true}).click();
+    await expect(page.getByRole('button',{name:code+' · '+name,exact:true})).toBeVisible();
+  }
+  await page.getByText('예산 최초 배정',{exact:true}).click();
+  const allocationForm=page.locator('form').filter({has:page.getByRole('button',{name:'예산 배정',exact:true})});
+  for(const label of ['가상 예산 A','가상 예산 B']){
+    await allocationForm.getByLabel('예산항목 이름',{exact:true}).fill(label);await allocationForm.getByLabel('재원',{exact:true}).fill('가상 재원');
+    await allocationForm.getByLabel('최초 배정액 (원)',{exact:true}).fill('1000000');await allocationForm.getByLabel('처리 사유',{exact:true}).fill('가상 최초 배정');await allocationForm.getByRole('button',{name:'예산 배정',exact:true}).click();
+    await expect(page.getByRole('button',{name:label,exact:true})).toBeVisible();
+  }
+  console.log('Browser: researcher budget change');await as(researcher);await page.getByRole('button',{name:'예산배정·변경',exact:true}).click();await page.getByLabel('예산 과제·비교과',{exact:true}).selectOption(project);
+  await page.getByText('예산변경 신청',{exact:true}).click();
+  const changeForm=page.locator('form').filter({has:page.getByRole('button',{name:'변경 신청 제출',exact:true})});
+  await changeForm.getByLabel('가상 예산 A 변경 후 금액',{exact:true}).fill('700000');await changeForm.getByLabel('가상 예산 B 변경 후 금액',{exact:true}).fill('1300000');
+  await changeForm.getByLabel('처리 사유',{exact:true}).fill('가상 UI 항목 간 이동');
+  await changeForm.locator('input[type=file]').setInputFiles({name:'synthetic-budget.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.7\nsynthetic UI fixture\n%%EOF')});
+  await changeForm.getByRole('button',{name:'변경 신청 제출',exact:true}).click();await expect(page.getByRole('button',{name:'가상 UI 항목 간 이동',exact:true})).toBeVisible();
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  console.log('Browser: staff confirmation');await as(staff);await page.getByRole('button',{name:'예산배정·변경',exact:true}).click();await page.getByLabel('예산 과제·비교과',{exact:true}).selectOption(project);
+  for(const action of ['review','confirm']){
+    await page.getByRole('button',{name:'가상 UI 항목 간 이동',exact:true}).click();
+    const review=page.locator('form').filter({has:page.getByRole('button',{name:'변경 처리',exact:true})});
+    await review.getByLabel('처리 선택',{exact:true}).selectOption(action);await review.getByLabel('처리 사유',{exact:true}).fill('가상 검토 '+action);await review.getByRole('button',{name:'변경 처리',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'변경신청 상세',exact:true})).toHaveCount(0);
+  }
+  await expect(page.locator('tbody tr').filter({has:page.getByRole('button',{name:'가상 예산 A',exact:true})})).toContainText('700,000원');
+  await page.getByRole('button',{name:'가상 UI 항목 간 이동',exact:true}).click();
+  const downloadPromise=page.waitForEvent('download');await page.getByRole('link',{name:'synthetic-budget.pdf 내려받기',exact:true}).click();const download=await downloadPromise;
+  assert.equal(download.suggestedFilename(),'synthetic-budget.pdf');assert.equal(await download.failure(),null);
+  await page.screenshot({path:'test-results/phase-03-budget-mobile.png',fullPage:true});
+  await page.setViewportSize({width:1280,height:900});await page.screenshot({path:'test-results/phase-03-budget.png',fullPage:true});
   // Same browser account replacement must clear old user's data before the next screen.
   await context.clearCookies();await context.addCookies([{name:'boot_session',value:tokens[researcher],url:'http://localhost:3000',httpOnly:true,sameSite:'Lax'}]);
   await expect(page.getByRole('button',{name:'계정 관리',exact:true})).toHaveCount(0,{timeout:25000});
   await expect(page.getByRole('button',{name:'동료 비공개 업무',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'로그아웃',exact:true}).click();await expect(page.getByRole('button',{name:'Google 계정으로 로그인'})).toBeVisible();await page.goBack();await expect(page.getByRole('button',{name:'내 연구 업무',exact:true})).toHaveCount(0);
   assert.deepEqual(pageErrors,[]);
-  console.log('Browser checks passed: four roles, real form save, same-browser account replacement, no persistent data cache, idle warning/extension, logout and mobile layout. Synthetic screenshots only.');
-}catch(e){console.error(e instanceof Error?e.message:'Browser checks failed');process.exitCode=1;}
+  console.log('Browser checks passed: phase 02 regression plus phase 03 classification, allocation, researcher multi-line change with file, staff review/confirmation, private download and mobile layout. Synthetic screenshots only.');
+}catch(e){console.error(e instanceof Error?e.stack:'Browser checks failed');process.exitCode=1;}
 finally{
   await browser?.close();if(child&&child.exitCode===null){child.kill();await once(child,'exit');}await pool.end();
-  if(created){for(const table of ['project_history','work_history','work_items','otp_credentials','oauth_flows','account_audit_events','auth_sessions','auth_identities','email_ownership_checks','login_accounts','audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history'])await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);await owner.query(`DROP FUNCTION IF EXISTS ${schema}.reject_foundation_rewrite()`);await owner.query(`DROP SCHEMA ${schema}`);}await owner.end();
+  if(created){for(const table of ['budget_events','spend_states','budget_files','budget_change_lines','budget_changes','budget_accounts','budget_code_versions','budget_codes','project_history','work_history','work_items','otp_credentials','oauth_flows','account_audit_events','auth_sessions','auth_identities','email_ownership_checks','login_accounts','audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history'])await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);await owner.query(`DROP FUNCTION IF EXISTS ${schema}.reject_foundation_rewrite()`);await owner.query(`DROP FUNCTION IF EXISTS ${schema}.protect_budget_snapshot()`);await owner.query(`DROP SCHEMA ${schema}`);}await owner.end();
 }

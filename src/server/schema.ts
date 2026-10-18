@@ -1,6 +1,6 @@
 import 'server-only';
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, boolean, timestamp, bigint, jsonb, smallint, integer, unique, uniqueIndex, primaryKey, foreignKey, check, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, boolean, timestamp, bigint, jsonb, smallint, integer, unique, uniqueIndex, primaryKey, foreignKey, check, index, date, customType } from 'drizzle-orm/pg-core';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 export const people = pgTable('people', {
@@ -112,7 +112,7 @@ export const workItems = pgTable('work_items', {
   id: uuid('id').primaryKey(), projectId: uuid('project_id').notNull().references(() => projects.id), title: text('title').notNull(),
   description: text('description').notNull(), assignedTo: uuid('assigned_to').references(() => users.id),
   createdBy: uuid('created_by').notNull().references(() => users.id), version: bigint('version', { mode: 'bigint' }).notNull().default(0n), createdAt: createdAt(),
-}, t => [index('work_project_idx').on(t.projectId), index('work_assignee_idx').on(t.assignedTo),
+}, t => [unique('work_project_unique').on(t.id,t.projectId), index('work_project_idx').on(t.projectId), index('work_assignee_idx').on(t.assignedTo),
   check('work_title_check', sql`length(btrim(${t.title})) BETWEEN 1 AND 200`), check('work_description_check', sql`length(${t.description}) <= 5000`), check('work_version_check', sql`${t.version} >= 0`)]);
 export const workHistory = pgTable('work_history', {
   id: uuid('id').primaryKey(), workId: uuid('work_id').notNull().references(() => workItems.id), actorId: uuid('actor_id').notNull().references(() => users.id),
@@ -122,3 +122,43 @@ export const projectHistory = pgTable('project_history', {
   id: uuid('id').primaryKey(), projectId: uuid('project_id').notNull().references(() => projects.id), actorId: uuid('actor_id').notNull().references(() => users.id),
   reason: text('reason').notNull(), beforeState: jsonb('before_state').notNull(), afterState: jsonb('after_state').notNull(), createdAt: createdAt(),
 }, t => [index('project_history_time_idx').on(t.projectId, t.createdAt), check('project_history_reason_check', sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`)]);
+
+// SQL migrations own triggers and the deferred audit FK; Drizzle mirrors storage columns/constraints.
+export const budgetCodes = pgTable('budget_codes', {
+  id: uuid('id').primaryKey(), code: text('code').notNull().unique(), level: smallint('level').notNull(),
+}, t=>[check('budget_code_format',sql`${t.code} ~ '^N[0-9]{2}(\.[0-9]{2})?(\.[0-9]{3})?$'`),check('budget_code_level',sql`${t.level} BETWEEN 1 AND 3`)]);
+export const budgetCodeVersions = pgTable('budget_code_versions', {
+  id:uuid('id').primaryKey(),codeId:uuid('code_id').notNull().references(()=>budgetCodes.id),version:bigint('version',{mode:'bigint'}).notNull(),
+  parentId:uuid('parent_id').references(()=>budgetCodes.id),name:text('name').notNull(),active:boolean('active').notNull(),
+  effectiveOn:date('effective_on').notNull(),actorId:uuid('actor_id').notNull().references(()=>users.id),reason:text('reason').notNull(),createdAt:createdAt(),
+},t=>[unique().on(t.codeId,t.version),check('budget_code_version',sql`${t.version} >= 0`),check('budget_code_name',sql`length(btrim(${t.name})) BETWEEN 1 AND 200`)]);
+export const budgetAccounts = pgTable('budget_accounts', {
+  lineId:uuid('line_id').primaryKey().references(()=>budgetLines.id),codeVersionId:uuid('code_version_id').notNull().references(()=>budgetCodeVersions.id),
+  classificationSnapshot:jsonb('classification_snapshot').notNull(),businessName:text('business_name').notNull(),businessYear:integer('business_year').notNull(),academicYear:integer('academic_year').notNull(),
+  periodStart:date('period_start').notNull(),periodEnd:date('period_end').notNull(),fund:text('fund').notNull(),
+  currentAmount:bigint('current_amount',{mode:'bigint'}).notNull(),committedAmount:bigint('committed_amount',{mode:'bigint'}).notNull().default(0n),version:bigint('version',{mode:'bigint'}).notNull().default(0n),
+},t=>[check('budget_period',sql`${t.periodEnd} >= ${t.periodStart}`),check('budget_fund',sql`length(btrim(${t.fund})) BETWEEN 1 AND 200`),check('budget_current',sql`${t.currentAmount} >= 0`),check('budget_commitment',sql`${t.committedAmount} >= 0 AND ${t.committedAmount} <= ${t.currentAmount}`),check('budget_version',sql`${t.version} >= 0`)]);
+export const budgetChanges = pgTable('budget_changes', {
+  id:uuid('id').primaryKey(),projectId:uuid('project_id').notNull().references(()=>projects.id),applicantId:uuid('applicant_id').notNull().references(()=>users.id),
+  reason:text('reason').notNull(),kind:text('kind').notNull(),state:text('state').notNull().default('submitted'),version:bigint('version',{mode:'bigint'}).notNull().default(0n),
+  supersedes:uuid('supersedes'),createdAt:createdAt(),
+},t=>[foreignKey({columns:[t.supersedes],foreignColumns:[t.id]}),check('budget_change_reason',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),check('budget_change_kind',sql`${t.kind} IN ('transfer','total')`),check('budget_change_state',sql`${t.state} IN ('submitted','reviewing','confirmed','rejected','cancelled')`),check('budget_change_version',sql`${t.version} >= 0`),index('budget_changes_project_idx').on(t.projectId)]);
+export const budgetChangeLines = pgTable('budget_change_lines', {
+  changeId:uuid('change_id').notNull().references(()=>budgetChanges.id),lineId:uuid('line_id').notNull().references(()=>budgetAccounts.lineId),
+  beforeAmount:bigint('before_amount',{mode:'bigint'}).notNull(),afterAmount:bigint('after_amount',{mode:'bigint'}).notNull(),expectedVersion:bigint('expected_version',{mode:'bigint'}).notNull(),
+},t=>[primaryKey({columns:[t.changeId,t.lineId]}),check('change_before',sql`${t.beforeAmount} >= 0`),check('change_after',sql`${t.afterAmount} >= 0`),check('change_version',sql`${t.expectedVersion} >= 0`)]);
+const bytea=customType<{data:Buffer}>({dataType:()=> 'bytea'});
+export const budgetFiles = pgTable('budget_files', {
+  id:uuid('id').primaryKey(),changeId:uuid('change_id').notNull().references(()=>budgetChanges.id),filename:text('filename').notNull(),sha256:text('sha256').notNull(),
+  content:bytea('content').notNull(),version:integer('version').notNull().default(1),createdAt:createdAt(),
+},t=>[check('budget_file_hash',sql`${t.sha256} ~ '^[0-9a-f]{64}$'`),check('budget_file_size',sql`octet_length(${t.content}) BETWEEN 1 AND 5242880`),check('budget_file_version',sql`${t.version} > 0`),unique().on(t.changeId,t.version),index('budget_files_change_idx').on(t.changeId)]);
+export const spendStates = pgTable('spend_states', {
+  caseId:uuid('case_id').primaryKey(),projectId:uuid('project_id').notNull(),workId:uuid('work_id').notNull(),amount:bigint('amount',{mode:'bigint'}).notNull(),
+  paidAmount:bigint('paid_amount',{mode:'bigint'}).notNull().default(0n),state:text('state').notNull().default('draft'),version:bigint('version',{mode:'bigint'}).notNull().default(0n),
+  processingBy:uuid('processing_by').references(()=>users.id),processingAt:timestamp('processing_at',{withTimezone:true}),
+},t=>[foreignKey({columns:[t.caseId,t.projectId],foreignColumns:[spendCases.id,spendCases.projectId]}),foreignKey({columns:[t.workId,t.projectId],foreignColumns:[workItems.id,workItems.projectId]}),
+  check('spend_amount',sql`${t.amount} > 0`),check('spend_paid',sql`${t.paidAmount} >= 0 AND ${t.paidAmount} <= ${t.amount}`),check('spend_state',sql`${t.state} IN ('draft','submitted','reviewing','supplement','approved')`),check('spend_version',sql`${t.version} >= 0`),check('spend_paid_state',sql`${t.paidAmount}=0 OR ${t.state}='approved'`),check('spend_processing',sql`(${t.processingBy} IS NULL)=(${t.processingAt} IS NULL)`),index('spend_states_work_idx').on(t.workId)]);
+export const budgetEvents = pgTable('budget_events', {
+  id:uuid('id').primaryKey(),projectId:uuid('project_id').references(()=>projects.id),entityId:uuid('entity_id').notNull(),actorId:uuid('actor_id').notNull().references(()=>users.id),requestId:uuid('request_id').notNull(),
+  action:text('action').notNull(),reason:text('reason').notNull(),beforeState:jsonb('before_state').notNull(),afterState:jsonb('after_state').notNull(),createdAt:createdAt(),
+},t=>[foreignKey({columns:[t.actorId,t.requestId],foreignColumns:[commandReceipts.actorId,commandReceipts.requestId]}),check('budget_event_reason',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),index('budget_events_entity_idx').on(t.entityId,t.createdAt)]);

@@ -39,3 +39,8 @@ footer { border-top: 1px solid #dce0e7; padding-top: 20px; font-size: 12px; colo
 .portal .message:not(:empty),.portal .warning { padding:14px;background:#fff3d6;border-radius:8px;margin:16px 0; }
 .portal .secret { padding:16px;background:#fff3d6;overflow-wrap:anywhere; }
 .portal .prewrap { white-space:pre-wrap;overflow-wrap:anywhere; }
+/* Budget tables scroll within their panel on small screens. */
+.budget-table{overflow-x:auto;max-width:100%;margin:1rem 0}
+.budget-table table{border-collapse:collapse;width:100%;min-width:680px}
+.budget-table th,.budget-table td{padding:.7rem;border-bottom:1px solid #d9e2e8;text-align:right;white-space:nowrap}
+.budget-table th:first-child,.budget-table td:first-child{text-align:left}

@@ -13,7 +13,7 @@
     "start": "next start --hostname 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "test": "node --conditions=react-server --test tests/unit.test.ts tests/google-config.test.mjs tests/oidc.test.ts",
-    "test:db": "node --conditions=react-server --test --test-concurrency=1 tests/database.test.ts tests/access.test.ts",
+    "test:db": "node --conditions=react-server --test --test-concurrency=1 tests/database.test.ts tests/access.test.ts tests/budgets.test.ts",
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "node --conditions=react-server scripts/seed.ts",
     "local": "node scripts/local.mjs",

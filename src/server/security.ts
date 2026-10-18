@@ -26,7 +26,7 @@ export function readCookie(request: Request, name = sessionCookie): string {
 export function sameOrigin(request: Request): void {
   if (request.headers.get('origin') !== appOrigin() || request.headers.get('sec-fetch-site') === 'cross-site') throw new AppError('FORBIDDEN');
 }
-export async function body(request: Request): Promise<Record<string, unknown>> {
+export async function body(request: Request, maxBytes = 16384): Promise<Record<string, unknown>> {
   sameOrigin(request);
   if (!request.headers.get('content-type')?.startsWith('application/json')) throw new AppError('INVALID_INPUT');
   // Bound reads before JSON parsing, including chunked requests.
@@ -35,7 +35,7 @@ export async function body(request: Request): Promise<Record<string, unknown>> {
   const chunks: Uint8Array[] = []; let length = 0;
   try {
     for (;;) { const item = await reader.read(); if (item.done) break; length += item.value.length;
-      if (length > 16384) { await reader.cancel(); throw new AppError('INVALID_INPUT'); } chunks.push(item.value); }
+      if (length > maxBytes) { await reader.cancel(); throw new AppError('INVALID_INPUT'); } chunks.push(item.value); }
     const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
     return parsed;

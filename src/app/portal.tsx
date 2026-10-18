@@ -1,5 +1,6 @@
 'use client';
 import { useCallback,useEffect,useRef,useState,type FormEvent } from 'react';
+import BudgetPanel from './budget-panel.tsx';
 
 type Row=Record<string,unknown>;
 type Session={id:string;email:string;role:string;expiresAt:string;idleExpiresAt:string;stepUpUntil:string|null;otpReady:boolean;serverTime:string};
@@ -56,7 +57,8 @@ export default function Portal(){
     {checking?<p>로그인 상태 확인 중…</p>:!user?<section className="intro"><p className="eyebrow">과제 · 비교과 업무 관리</p><h1>배정된 업무를<br/>한곳에서 확인하세요.</h1><p>사전 등록하고 이메일 소유 확인을 마친 계정만 이용할 수 있습니다.</p><button onClick={()=>void login()}>Google 계정으로 로그인</button><p>Google 계정 분실은 Google 복구 절차를 이용하고, ERP 계정 연결 문제는 담당자에게 문의하세요.</p></section>:<>
       <div className="toolbar"><button onClick={()=>void refresh()}>새로고침</button><button onClick={()=>void signout(false)}>로그아웃</button><button onClick={()=>void signout(true)}>전체 기기 로그아웃</button></div>
       {idle<=120000&&<div className="warning" role="alert">{idle<=0?'로그인 시간이 만료되었습니다.':'2분 이내에 로그인이 만료됩니다.'} <button onClick={()=>void api('/api/erp/activity',{}).then(session).catch(fail)}>계속 사용</button><span>최대 8시간은 연장되지 않습니다.</span></div>}
-      <nav aria-label="업무 메뉴">{[['work','내 업무'],['projects','과제·비교과'],...(manage?[['accounts','계정 관리'],['security','추가 본인 확인']]:[])].map(([v,l])=><button key={v} aria-current={tab===v?'page':undefined} onClick={()=>setTab(v)}>{l}</button>)}</nav>
+      <nav aria-label="업무 메뉴">{[['work','내 업무'],['projects','과제·비교과'],['budgets','예산배정·변경'],...(manage?[['accounts','계정 관리'],['security','추가 본인 확인']]:[])].map(([v,l])=><button key={v} aria-current={tab===v?'page':undefined} onClick={()=>setTab(v)}>{l}</button>)}</nav>
+      {tab==='budgets'&&<BudgetPanel key={user.id} role={user.role} projects={projects} fail={fail}/>}
       {tab==='work'&&<section><h1>{manage?'전체 업무':'배정 업무'}</h1><form onSubmit={e=>{e.preventDefault();void refresh();}} className="search"><label>업무 검색<input value={query} onChange={e=>setQuery(e.target.value)} maxLength={200}/></label><button>검색</button><a href={'/api/erp/export?q='+encodeURIComponent(query)}>조회 업무 내려받기</a></form><p>조회 가능한 업무 {work.length}건 (최대 1,000건)</p>
         <ul className="items">{work.map(w=><li key={s(w.id)}><button onClick={()=>void open('work',w)}>{s(w.title)}</button><span>{s(w.project_name)}</span></li>)}</ul>{!work.length&&<p>표시할 업무가 없습니다. 배정 여부를 담당자에게 확인하세요.</p>}
         {detail&&selected&&<article className="detail"><h2>{s(selected.title)}</h2><p className="prewrap">{s(selected.description)}</p><h3>업무·인수인계 이력</h3><ul>{historyRows.map(h=><li key={s(h.id)}>{when(h.created_at)} · {s(h.reason)}{(h.after_state as Row)?.title?' · '+s((h.after_state as Row).title):''}</li>)}</ul>{manage&&<Editor key={s(selected.id)+s(selected.version)} fields={workFields} label="업무 수정·재배정" submit={data=>change('work',{...data,id:selected.id,version:selected.version,action:'update'})}/>}</article>}
@@ -72,5 +74,5 @@ export default function Portal(){
         {recent&&!selected&&<details><summary>계정 사전 등록</summary><Editor fields={[{name:'name',label:'이름'},{name:'email',label:'Google 계정 이메일',type:'email'},{name:'role',label:'역할',options:Object.entries(names).filter(([v])=>user.role==='admin'||v!=='admin')},reason]} submit={data=>change('accounts',{...data,action:'create'})}/></details>}
       </section>}
       {tab==='accounts'&&selected&&detail&&<article className="detail"><h2>계정 변경 이력</h2><ul>{historyRows.map(h=><li key={s(h.id)}>{when(h.created_at)} · {s(h.reason)}</li>)}</ul><h3>이메일 소유 확인 이력</h3><ul>{((detail.ownership??[]) as Row[]).map((p,i)=><li key={i}>{when(p.checked_at)} · {s(p.email)} · {p.outcome==='verified'?'확인 완료':'확인 실패'} · {s(p.method)}</li>)}</ul></article>}{selected&&<button onClick={()=>{setSelected(null);setDetail(null);}}>선택 닫기</button>}
-    </>}<footer>02단계 계정·업무 배정 시험 · 예산 예약·청구·지급 기능은 후속 단계에서 제공됩니다.</footer></main>;
+    </>}<footer>계정·업무 배정 · 예산배정·변경 · 지출 신청 화면·지급 기능은 후속 단계에서 제공됩니다.</footer></main>;
 }
