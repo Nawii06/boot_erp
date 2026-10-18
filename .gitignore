@@ -10,6 +10,7 @@
 # Private operational data (store outside repo whenever possible)
 /private/
 /project_sources/
+/custom_ref/
 /uploads/
 /storage/
 /backups/
