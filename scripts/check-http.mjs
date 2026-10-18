@@ -4,7 +4,7 @@ if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) throw new Error('Local HTTP test 
 const home = await fetch(base);
 assert.equal(home.status, 200);
 const html = await home.text();
-assert.match(html, /로그인 준비 중/);
+assert.match(html, /로그인 상태 확인 중/);
 assert.match(html, /lang="ko"/);
 assert.doesNotMatch(html, /postgresql:\/\/|DATABASE_URL|boot_erp_dev_app|FAKE_PASSWORD/);
 assert.equal(home.headers.get('x-content-type-options'), 'nosniff');

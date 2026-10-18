@@ -1,0 +1,6 @@
+{
+  "name": "가상 관리자",
+  "email": "admin@example.invalid",
+  "ownershipMethod": "본인이 Google 계정에 직접 로그인하여 이메일 주소를 확인함",
+  "ownershipConfirmed": false
+}

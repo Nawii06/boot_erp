@@ -26,7 +26,7 @@ test('real PostgreSQL foundation integration (isolated disposable schema)', asyn
       assert.equal(await migrate(ownerUrl, schema, 1), 1);
       const legacy = randomUUID();
       await owner.query(`INSERT INTO ${schema}.users(id,role) VALUES($1,'researcher')`, [legacy]);
-      assert.equal(await migrate(ownerUrl, schema), 1);
+      assert.equal(await migrate(ownerUrl, schema), 2);
       assert.deepEqual((await owner.query(`SELECT role,active,auth_subject FROM ${schema}.users WHERE id=$1`, [legacy])).rows,
         [{ role: 'researcher', active: false, auth_subject: null }]);
       assert.equal((await owner.query(`SELECT count(*)::int AS n FROM ${schema}.login_accounts`)).rows[0].n, 0);
@@ -188,7 +188,7 @@ test('real PostgreSQL foundation integration (isolated disposable schema)', asyn
     await pool.end();
     if (created) {
       // Only this invocation's random schema, explicit objects, no shared tables or CASCADE.
-      for (const table of ['account_audit_events','auth_sessions','auth_identities','email_ownership_checks','login_accounts','audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history']) await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);
+      for (const table of ['project_history','work_history','work_items','otp_credentials','oauth_flows','account_audit_events','auth_sessions','auth_identities','email_ownership_checks','login_accounts','audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history']) await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);
       await owner.query(`DROP FUNCTION IF EXISTS ${schema}.reject_foundation_rewrite()`);
       await owner.query(`DROP SCHEMA ${schema}`);
     }

@@ -1,6 +1,6 @@
 import 'server-only';
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, boolean, timestamp, bigint, jsonb, smallint, unique, uniqueIndex, primaryKey, foreignKey, check, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, boolean, timestamp, bigint, jsonb, smallint, integer, unique, uniqueIndex, primaryKey, foreignKey, check, index } from 'drizzle-orm/pg-core';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 export const people = pgTable('people', {
@@ -14,7 +14,9 @@ export const users = pgTable('users', {
 export const projects = pgTable('projects', {
   id: uuid('id').primaryKey(), code: text('code').notNull().unique(), name: text('name').notNull(),
   kind: text('kind').notNull(), createdAt: createdAt(),
-}, t => [check('projects_name_check', sql`length(btrim(${t.name})) BETWEEN 1 AND 200`), check('projects_kind_check', sql`${t.kind} IN ('research','program')`)]);
+  businessYear: integer('business_year'), version: bigint('version', { mode: 'bigint' }).notNull().default(0n),
+}, t => [check('projects_name_check', sql`length(btrim(${t.name})) BETWEEN 1 AND 200`), check('projects_kind_check', sql`${t.kind} IN ('research','program')`),
+  check('projects_year_check', sql`${t.businessYear} BETWEEN 2000 AND 2200`), check('projects_version_check', sql`${t.version} >= 0`)]);
 export const projectMemberships = pgTable('project_memberships', {
   id: uuid('id').primaryKey(), projectId: uuid('project_id').notNull().references(() => projects.id),
   userId: uuid('user_id').notNull().references(() => users.id), active: boolean('active').notNull().default(true),
@@ -44,6 +46,8 @@ export const loginAccounts = pgTable('login_accounts', {
   userId: uuid('user_id').primaryKey().references(() => users.id),
   email: text('email').notNull().unique(), authVersion: bigint('auth_version', { mode: 'bigint' }).notNull().default(0n),
   createdAt: createdAt(),
+  bindingAllowed: boolean('binding_allowed').notNull().default(false),
+  ownershipAfter: timestamp('ownership_after', { withTimezone: true }).notNull().defaultNow(),
 }, t => [check('login_accounts_auth_version_check', sql`${t.authVersion} >= 0`),
   check('login_accounts_email_check', sql`${t.email} = lower(btrim(${t.email})) AND length(${t.email}) BETWEEN 3 AND 254 AND ${t.email} ~ '^[^[:space:]@]+@[^[:space:]@]+$'`)]);
 
@@ -94,3 +98,27 @@ export const accountAuditEvents = pgTable('account_audit_events', {
   check('account_audit_reason_check', sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),
   check('account_audit_before_check', sql`jsonb_typeof(${t.beforeState}) = 'object'`),
   check('account_audit_after_check', sql`jsonb_typeof(${t.afterState}) = 'object'`)]);
+
+export const oauthFlows = pgTable('oauth_flows', {
+  stateHash: text('state_hash').primaryKey(), browserHash: text('browser_hash').notNull(),
+  verifier: text('verifier').notNull(), nonce: text('nonce').notNull(), expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+export const otpCredentials = pgTable('otp_credentials', {
+  userId: uuid('user_id').primaryKey().references(() => loginAccounts.userId), encryptedSecret: text('encrypted_secret').notNull(),
+  confirmed: boolean('confirmed').notNull().default(false), lastCounter: bigint('last_counter', { mode: 'bigint' }).notNull().default(-1n),
+  failures: integer('failures').notNull().default(0), lockedUntil: timestamp('locked_until', { withTimezone: true }), createdAt: createdAt(),
+}, t => [check('otp_failures_check', sql`${t.failures} >= 0`)]);
+export const workItems = pgTable('work_items', {
+  id: uuid('id').primaryKey(), projectId: uuid('project_id').notNull().references(() => projects.id), title: text('title').notNull(),
+  description: text('description').notNull(), assignedTo: uuid('assigned_to').references(() => users.id),
+  createdBy: uuid('created_by').notNull().references(() => users.id), version: bigint('version', { mode: 'bigint' }).notNull().default(0n), createdAt: createdAt(),
+}, t => [index('work_project_idx').on(t.projectId), index('work_assignee_idx').on(t.assignedTo),
+  check('work_title_check', sql`length(btrim(${t.title})) BETWEEN 1 AND 200`), check('work_description_check', sql`length(${t.description}) <= 5000`), check('work_version_check', sql`${t.version} >= 0`)]);
+export const workHistory = pgTable('work_history', {
+  id: uuid('id').primaryKey(), workId: uuid('work_id').notNull().references(() => workItems.id), actorId: uuid('actor_id').notNull().references(() => users.id),
+  reason: text('reason').notNull(), beforeState: jsonb('before_state').notNull(), afterState: jsonb('after_state').notNull(), createdAt: createdAt(),
+}, t => [index('work_history_time_idx').on(t.workId, t.createdAt), check('work_history_reason_check', sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`)]);
+export const projectHistory = pgTable('project_history', {
+  id: uuid('id').primaryKey(), projectId: uuid('project_id').notNull().references(() => projects.id), actorId: uuid('actor_id').notNull().references(() => users.id),
+  reason: text('reason').notNull(), beforeState: jsonb('before_state').notNull(), afterState: jsonb('after_state').notNull(), createdAt: createdAt(),
+}, t => [index('project_history_time_idx').on(t.projectId, t.createdAt), check('project_history_reason_check', sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`)]);

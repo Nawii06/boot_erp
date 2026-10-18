@@ -4,7 +4,7 @@ import { won, checkedWon, sumWon, jsonValue } from '../src/lib/money.ts';
 import { uuid, textInput } from '../src/lib/validation.ts';
 import { AppError, errorResponse } from '../src/lib/errors.ts';
 import { mayAccess, roles } from '../src/server/access.ts';
-import { requireSubject } from '../src/server/auth.ts';
+import { readCookie,sameOrigin,seal,unseal } from '../src/server/security.ts';
 
 test('won: safe integer boundary, exact arithmetic and JSON string contract', () => {
   assert.equal(sumWon([won('9007199254740993'), won('1')]), 9007199254740994n);
@@ -14,7 +14,15 @@ test('won: safe integer boundary, exact arithmetic and JSON string contract', ()
   assert.throws(() => sumWon([9223372036854775807n, 1n]), AppError);
   assert.throws(() => checkedWon(-9223372036854775809n), AppError);
 });
-test('unverified login remains closed', async () => { await assert.rejects(requireSubject(), { code: 'UNAUTHENTICATED' }); });
+test('cookie ambiguity, CSRF, and encrypted secret context are rejected', () => {
+  const fake='a'.repeat(43);
+  assert.equal(readCookie(new Request('http://localhost:3000',{headers:{cookie:`boot_session=${fake}; boot_session=${fake}`}})),'');
+  assert.equal(readCookie(new Request('http://localhost:3000',{headers:{'x-user-id':'admin'}})),'');
+  assert.throws(()=>sameOrigin(new Request('http://localhost:3000',{headers:{origin:'https://attacker.invalid'}})),{code:'FORBIDDEN'});
+  process.env.AUTH_ENCRYPTION_KEY='ab'.repeat(32);
+  const encrypted=seal('synthetic-secret','user-a');assert.equal(unseal(encrypted,'user-a'),'synthetic-secret');
+  assert.throws(()=>unseal(encrypted,'user-b'),{code:'UNAVAILABLE'});
+});
 test('role boundary: assignment, read only PI, staff vs system and unknown sensitive policy', () => {
   for (const role of roles) {
     assert.equal(mayAccess({ role, active: false, assigned: true }, 'project.read'), false);

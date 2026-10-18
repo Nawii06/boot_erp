@@ -2,16 +2,16 @@
 
 산공과제·비교과 프로그램의 예산, 사용신청, 청구, 증빙, 대학 ERP 실청구 및 지급·정산을 관리하기 위한 웹 ERP 프로젝트입니다.
 
-**현재 상태: 01단계 완료 → 02단계 인증 데이터·비공개 설정 기반 구현·검수 완료, 실제 로그인·관리 화면 구현 전.** 전체 진행 위치와 이후 순서는 [진행상황](docs/STATUS.md)을 확인합니다.
+**현재 상태: 02단계 로그인·계정·업무 배정 구현과 가상 검수 완료, 실제 Google 로그인 성공·ERP 인증 앱 최종 확인 중.** 전체 진행 위치와 이후 순서는 [진행상황](docs/STATUS.md), 실행 방법은 [02 사용 안내](docs/phase-02-guide.md)를 확인합니다.
 
-기준일: 2026-10-18 / 시간대: Asia/Seoul / 문서 버전: 0.4
+기준일: 2026-10-18 / 시간대: Asia/Seoul / 문서 버전: 0.5
 
 ## 시작하기
 
 1. [전체 구축계획](docs/00-overview.md)과 [단계별 로드맵](docs/04-roadmap.md)을 읽습니다.
 2. [현재 진행상황](docs/STATUS.md)에서 다음 작업과 미결정을 확인합니다.
 3. VS Code에서 저장소를 열고 [Codex 작업 안내](docs/05-codex-runbook.md)에 따라 **한 단계씩** 작업합니다.
-4. [개발 기반 실행·DB 안내](docs/foundation.md)를 따라 실행합니다. 다음 대상은 [02단계](docs/stages/02-access-projects.md)입니다. 로그인·열람·세션 정책은 확정됐으며 실제 인증·계정 관리·업무 배정 구현과 검수가 남았습니다.
+4. [개발 기반·DB 안내](docs/foundation.md)와 [02 로그인·업무 사용 안내](docs/phase-02-guide.md)를 따라 실행합니다. [02단계](docs/stages/02-access-projects.md) 최종 판정 후 03의 예산 정책을 확인합니다.
 
 ## 사용자와 범위
 
@@ -61,7 +61,7 @@
 .\scripts\app.cmd run local -- dev
 ```
 
-`http://127.0.0.1:3000`에서 준비 화면을 확인합니다. 로그인 우회와 파일 업로드는 제공하지 않습니다. 검수 명령:
+Google 로그인에는 [02 사용 안내](docs/phase-02-guide.md)의 비공개 키·Google 설정과 최초 관리자 준비가 필요합니다. 브라우저는 `http://localhost:3000`을 사용합니다. 로그인 우회와 파일 업로드는 제공하지 않습니다. 검수 명령:
 
 ```powershell
 .\scripts\app.cmd run typecheck
