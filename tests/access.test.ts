@@ -62,6 +62,22 @@ test('phase 02: real PostgreSQL and HTTP handlers with synthetic accounts',async
     async function stepup(token:string){const enrol=await call('/api/erp/otp-enroll',token,{});assert.equal(enrol.status,200);
       const code=new TOTP({secret:Secret.fromBase32(enrol.data.secret)}).generate();assert.equal((await call('/api/erp/otp-verify',token,{code})).status,200);return {code,secret:enrol.data.secret};}
     let adminOtp:{code:string;secret:string};
+    await t.test('OTP registration expiry tells a valid manager to reauthenticate; fresh login permits registration',async()=>{
+      const account=await seed('staff','enrollment-expiry');
+      const age=()=>owner.query("UPDATE auth_sessions SET issued_at=issued_at-INTERVAL '6 minutes',expires_at=expires_at-INTERVAL '6 minutes' WHERE token_hash=$1",[hash(account.token)]);
+      await age();
+      assert.equal((await call('/api/session',account.token)).status,200);
+      const refused=await call('/api/erp/otp-enroll',account.token,{});
+      assert.equal(refused.status,403);assert.equal(refused.data.error.code,'REAUTH_REQUIRED');
+      assert.equal((await owner.query('SELECT 1 FROM otp_credentials WHERE user_id=$1',[account.id])).rowCount,0);
+      account.token=await issueSession(pool,identities.get(account.id)!);
+      const enrolled=await call('/api/erp/otp-enroll',account.token,{});assert.equal(enrolled.status,200);
+      const code=new TOTP({secret:Secret.fromBase32(enrolled.data.secret)}).generate();
+      await age();
+      const confirmation=await call('/api/erp/otp-verify',account.token,{code});
+      assert.equal(confirmation.data.error.code,'REAUTH_REQUIRED');
+      assert.equal((await owner.query('SELECT confirmed FROM otp_credentials WHERE user_id=$1',[account.id])).rows[0].confirmed,false);
+    });
     await t.test('A-11: OTP enrollment, replay protection, and per-account throttling',async()=>{
       adminOtp=await stepup(admin.token);await stepup(staff.token);
       assert.equal((await call('/api/erp/otp-verify',admin.token,{code:adminOtp.code})).status,403);

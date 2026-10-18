@@ -96,7 +96,7 @@ export async function beginOtp(pool: Pool,token: string) {
   return transaction(pool, async c => {
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended('account-management',0))");
     const a = await authenticate(c,token,true); manager(a);
-    if (a.issuedAt.getTime()<Date.now()-300000) throw new AppError('FORBIDDEN');
+    if (a.issuedAt.getTime()<Date.now()-300000) throw new AppError('REAUTH_REQUIRED');
     const existing = (await c.query('SELECT * FROM otp_credentials WHERE user_id=$1 FOR UPDATE',[a.id])).rows[0];
     if (existing?.confirmed) throw new AppError('CONFLICT');
     const secret = existing ? unseal(existing.encrypted_secret,a.id) : new Secret({size:20}).base32;
@@ -112,7 +112,7 @@ export async function verifyOtp(pool: Pool,token: string,code: unknown) {
     const a=await authenticate(c,token,true); manager(a);
     const o=(await c.query('SELECT * FROM otp_credentials WHERE user_id=$1 FOR UPDATE',[a.id])).rows[0];
     if (!o || (o.locked_until && o.locked_until.getTime()>Date.now())) return false;
-    if (!o.confirmed && a.issuedAt.getTime()<Date.now()-300000) return false;
+    if (!o.confirmed && a.issuedAt.getTime()<Date.now()-300000) throw new AppError('REAUTH_REQUIRED');
     const now=Date.now(), totp=new TOTP({secret:Secret.fromBase32(unseal(o.encrypted_secret,a.id)),algorithm:'SHA1',digits:6,period:30});
     const delta=totp.validate({token:code,timestamp:now,window:1}), counter=Math.floor(now/30000)+(delta ?? 0);
     if (delta===null || BigInt(counter)<=BigInt(o.last_counter)) {
