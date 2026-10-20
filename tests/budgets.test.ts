@@ -7,6 +7,8 @@ import { assertLocalDatabase,requiredUrl } from '../scripts/db-config.mjs';
 import { runtimePool } from '../src/server/db.ts';
 import { issueSession } from '../src/server/google.ts';
 import { GET,POST } from '../src/app/api/erp/[...path]/route.ts';
+import { manageSpend } from '../src/server/budgets.ts';
+import { errorResponse } from '../src/lib/errors.ts';
 
 test('phase 03: budget integrity and private files on real PostgreSQL and HTTP handlers',async t=>{
   const ownerUrl=assertLocalDatabase(requiredUrl('TEST_MIGRATION_DATABASE_URL'),'boot_erp_test','owner');
@@ -16,6 +18,11 @@ test('phase 03: budget integrity and private files on real PostgreSQL and HTTP h
   delete process.env.MIGRATION_DATABASE_URL;process.env.APP_ORIGIN='http://localhost:3000';
   const pool=runtimePool();let created=false;
   async function call(path:string,token:string,data?:Record<string,unknown>,origin='http://localhost:3000'){
+    // Phase 03 common service regression. Its public API is intentionally closed in phase 04.
+    if(path==='budget-spend'&&data) {
+      try{return {status:200,data:await manageSpend(pool,token,data),headers:new Headers()};}
+      catch(e){const r=errorResponse(e);return {status:r.status,data:await r.json(),headers:r.headers};}
+    }
     const request=new Request('http://localhost:3000/api/erp/'+path,{method:data?'POST':'GET',headers:{cookie:`boot_session=${token}`,origin,'Content-Type':'application/json'},...(data?{body:JSON.stringify(data)}:{})});
     const ctx={params:Promise.resolve({path:path.split('?')[0].split('/')})};
     const r=await(data?POST:GET)(request,ctx);return {status:r.status,data:r.headers.get('content-type')?.includes('json')?await r.json():Buffer.from(await r.arrayBuffer()),headers:r.headers};
@@ -25,7 +32,7 @@ test('phase 03: budget integrity and private files on real PostgreSQL and HTTP h
   const file={name:'synthetic.pdf',content:Buffer.from('%PDF-1.7\nsynthetic attachment only\n%%EOF').toString('base64')};
   await owner.connect();
   try{
-    await owner.query(`CREATE SCHEMA ${schema}`);created=true;assert.equal(await migrate(ownerUrl,schema),4);
+    await owner.query(`CREATE SCHEMA ${schema}`);created=true;assert.equal(await migrate(ownerUrl,schema),5);
     await owner.query(`GRANT USAGE ON SCHEMA ${schema} TO boot_erp_test_app`);
     await owner.query(`GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA ${schema} TO boot_erp_test_app`);
     await owner.query(`REVOKE ALL ON ${schema}.migration_history FROM boot_erp_test_app`);await owner.query(`SET search_path TO ${schema},public`);
@@ -167,8 +174,8 @@ test('phase 03: budget integrity and private files on real PostgreSQL and HTTP h
     });
   }finally{
     await pool.end();if(created){
-      for(const table of ['budget_events','spend_states','budget_files','budget_change_lines','budget_changes','budget_accounts','budget_code_versions','budget_codes','project_history','work_history','work_items','otp_credentials','oauth_flows','account_audit_events','auth_sessions','auth_identities','email_ownership_checks','login_accounts','audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history'])await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);
-      await owner.query(`DROP FUNCTION ${schema}.protect_budget_snapshot()`);await owner.query(`DROP FUNCTION ${schema}.reject_foundation_rewrite()`);await owner.query(`DROP SCHEMA ${schema}`);
+      for(const table of ['expense_files','expense_draft_versions','expense_policy_versions','expense_drafts','budget_events','spend_states','budget_files','budget_change_lines','budget_changes','budget_accounts','budget_code_versions','budget_codes','project_history','work_history','work_items','otp_credentials','oauth_flows','account_audit_events','auth_sessions','auth_identities','email_ownership_checks','login_accounts','audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history'])await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);
+      await owner.query(`DROP FUNCTION ${schema}.protect_budget_snapshot()`);await owner.query(`DROP FUNCTION ${schema}.reject_foundation_rewrite()`);await owner.query(`DROP FUNCTION IF EXISTS ${schema}.protect_expense_draft()`);await owner.query(`DROP SCHEMA ${schema}`);
     }await owner.end();
   }
 });

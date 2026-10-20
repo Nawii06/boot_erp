@@ -1,13 +1,14 @@
 'use client';
 import { useCallback,useEffect,useRef,useState,type FormEvent } from 'react';
 import BudgetPanel from './budget-panel.tsx';
+import ExpensePanel from './expense-panel.tsx';
 
 type Row=Record<string,unknown>;
 type Session={id:string;email:string;role:string;expiresAt:string;idleExpiresAt:string;stepUpUntil:string|null;otpReady:boolean;serverTime:string};
 const names:Record<string,string>={researcher:'연구원',principal_investigator:'과제책임자',staff:'담당자',admin:'관리자'};
 const s=(value:unknown)=>value===null||value===undefined?'':String(value);
 const when=(value:unknown)=>value?new Date(s(value)).toLocaleString('ko-KR'):'';
-const errors:Record<string,string>={UNAUTHENTICATED:'로그인이 만료되었거나 계정 확인이 필요합니다.',FORBIDDEN:'권한 또는 추가 본인 확인을 확인해 주세요.',REAUTH_REQUIRED:'Google 로그인 후 5분이 지나 인증 앱 등록 시간이 만료되었습니다. Google로 다시 로그인한 뒤 5분 이내에 등록 키 보기와 코드 확인을 진행해 주세요.',CONFLICT:'다른 변경이 있거나 현재 상태에서는 처리할 수 없습니다. 새로고침 후 확인해 주세요.',INVALID_INPUT:'필수 항목과 입력값을 확인해 주세요.',UNAVAILABLE:'서버 연결을 확인한 뒤 다시 시도해 주세요.'};
+const errors:Record<string,string>={PHASE_NOT_ENABLED:'현재는 초안만 저장할 수 있습니다. 신청 제출·승인은 보류 중입니다.',UNAUTHENTICATED:'로그인이 만료되었거나 계정 확인이 필요합니다.',FORBIDDEN:'권한 또는 추가 본인 확인을 확인해 주세요.',REAUTH_REQUIRED:'Google 로그인 후 5분이 지나 인증 앱 등록 시간이 만료되었습니다. Google로 다시 로그인한 뒤 5분 이내에 등록 키 보기와 코드 확인을 진행해 주세요.',CONFLICT:'다른 변경이 있거나 현재 상태에서는 처리할 수 없습니다. 새로고침 후 확인해 주세요.',INVALID_INPUT:'필수 항목과 입력값을 확인해 주세요.',UNAVAILABLE:'서버 연결을 확인한 뒤 다시 시도해 주세요.'};
 async function api(path:string,input?:Row){
   const r=await fetch(path,{cache:'no-store',credentials:'same-origin',...(input?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)}:{})});
   const data=await r.json();if(!r.ok)throw new Error(data?.error?.code??'UNAVAILABLE');return data;
@@ -57,7 +58,8 @@ export default function Portal(){
     {checking?<p>로그인 상태 확인 중…</p>:!user?<section className="intro"><p className="eyebrow">과제 · 비교과 업무 관리</p><h1>배정된 업무를<br/>한곳에서 확인하세요.</h1><p>사전 등록하고 이메일 소유 확인을 마친 계정만 이용할 수 있습니다.</p><button onClick={()=>void login()}>Google 계정으로 로그인</button><p>Google 계정 분실은 Google 복구 절차를 이용하고, ERP 계정 연결 문제는 담당자에게 문의하세요.</p></section>:<>
       <div className="toolbar"><button onClick={()=>void refresh()}>새로고침</button><button onClick={()=>void signout(false)}>로그아웃</button><button onClick={()=>void signout(true)}>전체 기기 로그아웃</button></div>
       {idle<=120000&&<div className="warning" role="alert">{idle<=0?'로그인 시간이 만료되었습니다.':'2분 이내에 로그인이 만료됩니다.'} <button onClick={()=>void api('/api/erp/activity',{}).then(session).catch(fail)}>계속 사용</button><span>최대 8시간은 연장되지 않습니다.</span></div>}
-      <nav aria-label="업무 메뉴">{[['work','내 업무'],['projects','과제·비교과'],['budgets','예산배정·변경'],...(manage?[['accounts','계정 관리'],['security','추가 본인 확인']]:[])].map(([v,l])=><button key={v} aria-current={tab===v?'page':undefined} onClick={()=>setTab(v)}>{l}</button>)}</nav>
+      <nav aria-label="업무 메뉴">{[['work','내 업무'],['projects','과제·비교과'],['budgets','예산배정·변경'],['expenses','지출 초안·증빙'],...(manage?[['accounts','계정 관리'],['security','추가 본인 확인']]:[])].map(([v,l])=><button key={v} aria-current={tab===v?'page':undefined} onClick={()=>setTab(v)}>{l}</button>)}</nav>
+      {tab==='expenses'&&<ExpensePanel key={user.id} role={user.role} fail={fail}/>}
       {tab==='budgets'&&<BudgetPanel key={user.id} role={user.role} projects={projects} fail={fail}/>}
       {tab==='work'&&<section><h1>{manage?'전체 업무':'배정 업무'}</h1><form onSubmit={e=>{e.preventDefault();void refresh();}} className="search"><label>업무 검색<input value={query} onChange={e=>setQuery(e.target.value)} maxLength={200}/></label><button>검색</button><a href={'/api/erp/export?q='+encodeURIComponent(query)}>조회 업무 내려받기</a></form><p>조회 가능한 업무 {work.length}건 (최대 1,000건)</p>
         <ul className="items">{work.map(w=><li key={s(w.id)}><button onClick={()=>void open('work',w)}>{s(w.title)}</button><span>{s(w.project_name)}</span></li>)}</ul>{!work.length&&<p>표시할 업무가 없습니다. 배정 여부를 담당자에게 확인하세요.</p>}

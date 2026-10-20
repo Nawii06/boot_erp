@@ -44,3 +44,5 @@ footer { border-top: 1px solid #dce0e7; padding-top: 20px; font-size: 12px; colo
 .budget-table table{border-collapse:collapse;width:100%;min-width:680px}
 .budget-table th,.budget-table td{padding:.7rem;border-bottom:1px solid #d9e2e8;text-align:right;white-space:nowrap}
 .budget-table th:first-child,.budget-table td:first-child{text-align:left}
+.portal pre { white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%; }
+.portal dd,.portal article a { overflow-wrap:anywhere; }

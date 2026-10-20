@@ -162,3 +162,22 @@ export const budgetEvents = pgTable('budget_events', {
   id:uuid('id').primaryKey(),projectId:uuid('project_id').references(()=>projects.id),entityId:uuid('entity_id').notNull(),actorId:uuid('actor_id').notNull().references(()=>users.id),requestId:uuid('request_id').notNull(),
   action:text('action').notNull(),reason:text('reason').notNull(),beforeState:jsonb('before_state').notNull(),afterState:jsonb('after_state').notNull(),createdAt:createdAt(),
 },t=>[foreignKey({columns:[t.actorId,t.requestId],foreignColumns:[commandReceipts.actorId,commandReceipts.requestId]}),check('budget_event_reason',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),index('budget_events_entity_idx').on(t.entityId,t.createdAt)]);
+
+export const expenseDrafts = pgTable('expense_drafts', {
+  id:uuid('id').primaryKey(),projectId:uuid('project_id').notNull().references(()=>projects.id),workId:uuid('work_id').notNull(),
+  applicantId:uuid('applicant_id').notNull().references(()=>users.id),version:bigint('version',{mode:'bigint'}).notNull().default(0n),createdAt:createdAt(),
+},t=>[foreignKey({columns:[t.workId,t.projectId],foreignColumns:[workItems.id,workItems.projectId]}),check('expense_draft_version',sql`${t.version} >= 0`),index('expense_drafts_work_idx').on(t.workId)]);
+export const expensePolicyVersions = pgTable('expense_policy_versions', {
+  id:uuid('id').primaryKey(),typeKey:text('type_key').notNull(),subtype:text('subtype').notNull(),version:bigint('version',{mode:'bigint'}).notNull(),
+  data:jsonb('data').notNull(),actorId:uuid('actor_id').notNull().references(()=>users.id),reason:text('reason').notNull(),createdAt:createdAt(),
+},t=>[unique().on(t.typeKey,t.subtype,t.version),check('expense_policy_version',sql`${t.version} >= 0`),check('expense_policy_data',sql`jsonb_typeof(${t.data})='object'`),check('expense_policy_reason',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`)]);
+export const expenseDraftVersions = pgTable('expense_draft_versions', {
+  id:uuid('id').primaryKey(),draftId:uuid('draft_id').notNull().references(()=>expenseDrafts.id),version:bigint('version',{mode:'bigint'}).notNull(),
+  budgetLineId:uuid('budget_line_id').references(()=>budgetAccounts.lineId),policyVersionId:uuid('policy_version_id').references(()=>expensePolicyVersions.id),
+  data:jsonb('data').notNull(),actorId:uuid('actor_id').notNull().references(()=>users.id),reason:text('reason').notNull(),createdAt:createdAt(),
+},t=>[unique().on(t.draftId,t.version),check('expense_revision_version',sql`${t.version} >= 0`),check('expense_revision_data',sql`jsonb_typeof(${t.data})='object'`),check('expense_revision_reason',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`)]);
+export const expenseFiles = pgTable('expense_files', {
+  id:uuid('id').primaryKey(),draftId:uuid('draft_id').notNull().references(()=>expenseDrafts.id),slotId:uuid('slot_id').notNull(),
+  version:bigint('version',{mode:'bigint'}).notNull(),filename:text('filename').notNull(),label:text('label').notNull(),sha256:text('sha256').notNull(),
+  content:bytea('content').notNull(),actorId:uuid('actor_id').notNull().references(()=>users.id),reason:text('reason').notNull(),createdAt:createdAt(),
+},t=>[unique().on(t.draftId,t.slotId,t.version),check('expense_file_version',sql`${t.version} >= 0`),check('expense_file_hash',sql`${t.sha256} ~ '^[0-9a-f]{64}$'`),check('expense_file_size',sql`octet_length(${t.content}) BETWEEN 1 AND 5242880`),check('expense_file_reason',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),index('expense_files_draft_idx').on(t.draftId)]);

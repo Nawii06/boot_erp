@@ -12,7 +12,7 @@ const commands = {
   migrate: ['scripts/migrate.mjs'],
   'migrate:test': ['scripts/migrate.mjs'],
   seed: ['--conditions=react-server','scripts/seed.ts'],
-  'test:db': ['--conditions=react-server','--test','--test-concurrency=1','tests/database.test.ts','tests/access.test.ts','tests/budgets.test.ts'],
+  'test:db': ['--conditions=react-server','--test','--test-concurrency=1','tests/database.test.ts','tests/access.test.ts','tests/budgets.test.ts','tests/expenses.test.ts'],
   'bootstrap-admin': ['--conditions=react-server','scripts/bootstrap-admin.ts'],
   'recover-admin': ['--conditions=react-server','scripts/bootstrap-admin.ts','recover'],
   'test:ui': ['--conditions=react-server','tests/browser.test.ts'],

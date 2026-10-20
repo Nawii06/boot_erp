@@ -21,9 +21,9 @@ for (const headers of [{}, { 'x-user-id': '30000000-0000-4000-8000-000000000001'
 assert.equal((await fetch(`${base}/api/session`, { method: 'POST' })).status, 405);
 assert.equal((await fetch(`${base}/api/files/synthetic`)).status, 404);
 assert.equal((await fetch(`${base}/uploads/synthetic`)).status, 404);
-for (const path of ['budget-codes','budgets?project=30000000-0000-4000-8000-000000000001','budget-changes?project=30000000-0000-4000-8000-000000000001','budget-files/30000000-0000-4000-8000-000000000001']) {
+for (const path of ['budget-codes','budgets?project=30000000-0000-4000-8000-000000000001','budget-changes?project=30000000-0000-4000-8000-000000000001','budget-files/30000000-0000-4000-8000-000000000001','expense-drafts','expense-policies','expense-policy-history?type=office','expense-files/30000000-0000-4000-8000-000000000001']) {
   const response=await fetch(`${base}/api/erp/${path}`);
   assert.equal(response.status,401);assert.equal(response.headers.get('cache-control'),'no-store');
   assert.deepEqual(await response.json(),{error:{code:'UNAUTHENTICATED'}});
 }
-console.log('HTTP checks passed: home, DB health, closed session (including spoofed headers), authenticated budget/file endpoints and no public upload path.');
+console.log('HTTP checks passed: home, DB health, closed session (including spoofed headers), authenticated budget/expense/settings/file endpoints and no public upload path.');
