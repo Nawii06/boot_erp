@@ -1,17 +1,23 @@
 # boot_erp
 
+후속 완성 작업: [통합계획](docs/completion-plan.md) · [단계별 실행 프롬프트](docs/completion-prompts.md). ERP 구성 완료 후 실제 데이터를 입력·대조하고, Notion 실적 연계는 그 이후에 수행합니다.
+
+통합 실행은 [필수 검사/자동 계속 규약](docs/execution-checks.md)에 따라 진행하고 [진행표·최종 점검 목록](docs/execution-progress.md)에 결과를 기록합니다. 구현 순서 종료 후 최종 검증을 거쳐 완료를 판정합니다.
+
+현재 PC 설정과 검증 결과: [Windows 환경 인수](docs/current-environment.md). `npm.cmd run doctor`로 런타임·비공개 설정 준비 상태를 확인합니다.
+
 산공과제·비교과 프로그램의 예산, 사용신청, 청구, 증빙, 대학 ERP 실청구 및 지급·정산을 관리하기 위한 웹 ERP 프로젝트입니다.
 
-**현재 상태: 00~03단계 완료, 04 공통 초안·비공개 첨부·기준 설정 일부 구현·검수 완료.** 초안은 예산을 차감하지 않으며 지출 신청 제출·검토·승인 활성화는 보류 중입니다. 실자료 이관·지급·운영 배포는 후속 범위입니다. 전체 진행 위치는 [진행상황](docs/STATUS.md), 실행 방법은 [02 사용 안내](docs/phase-02-guide.md), [03 예산 사용 안내](docs/phase-03-guide.md), [04 초안·설정 사용 안내](docs/phase-04-guide.md)를 확인합니다.
+**현재 상태: P0~P7 독립 구현·로컬 검증 및 F0 판정 수행, G1 미완료.** 이미지 기준 UI와 신청·보완·승인·수동 실청구·지급/환입·대시보드를 구현했습니다. 초안은 미차감, 제출은 1회 차감하며 실제 기준이 미설정/초과인 업무는 제출·승인을 차단합니다. 현재 PC의 실제 Google 인증과 운영 환경 검증은 남아 있습니다. [진행상황](docs/STATUS.md), [사용 안내](docs/user-guide.md), [운영 안내](docs/operations-runbook.md), [F0 증거](docs/qa/f0-evidence-2026-11-06.md)를 확인합니다. 실제 입력 P8·Notion P9·운영 배포는 수행하지 않았습니다.
 
-기준일: 2026-10-20 / 시간대: Asia/Seoul / 문서 버전: 0.7
+기준일: 2026-11-06 / 시간대: Asia/Seoul / 문서 버전: 0.8
 
 ## 시작하기
 
 1. [전체 구축계획](docs/00-overview.md)과 [단계별 로드맵](docs/04-roadmap.md)을 읽습니다.
 2. [현재 진행상황](docs/STATUS.md)에서 다음 작업과 미결정을 확인합니다.
-3. VS Code에서 저장소를 열고 [Codex 작업 안내](docs/05-codex-runbook.md)에 따라 **한 단계씩** 작업합니다.
-4. [개발 기반·DB 안내](docs/foundation.md)와 [04 초안·설정 사용 안내](docs/phase-04-guide.md)를 따라 실행합니다. 다음은 보류 정책 확정 후 04 제출·검토·승인을 연결하는 작업입니다.
+3. VS Code에서 저장소를 열고 [실행 규약](docs/execution-checks.md)과 [진행표](docs/execution-progress.md)의 유효 증거·미충족 조건부터 확인합니다.
+4. [현재 PC 환경](docs/current-environment.md), [사용 안내](docs/user-guide.md), [운영 안내](docs/operations-runbook.md)를 따라 실행합니다. 실제 자료는 G1과 지정 입력 범위를 확인한 뒤 입력합니다.
 
 ## 사용자와 범위
 
@@ -71,6 +77,10 @@ Google 로그인에는 [02 사용 안내](docs/phase-02-guide.md)의 비공개 �
 .\scripts\app.cmd run local -- start
 # 서버 실행 중 별도 터미널
 .\scripts\app.cmd run test:http
+.\scripts\app.cmd run local -- test:ui
+.\scripts\app.cmd run local -- test:completion-ui
+.\scripts\app.cmd run test:import
+.\scripts\app.cmd run test:backup
 .\scripts\app.cmd run check:docs
 ```
 

@@ -26,7 +26,7 @@ test('real PostgreSQL foundation integration (isolated disposable schema)', asyn
       assert.equal(await migrate(ownerUrl, schema, 1), 1);
       const legacy = randomUUID();
       await owner.query(`INSERT INTO ${schema}.users(id,role) VALUES($1,'researcher')`, [legacy]);
-      assert.equal(await migrate(ownerUrl, schema), 4);
+      assert.equal(await migrate(ownerUrl, schema), 6);
       assert.deepEqual((await owner.query(`SELECT role,active,auth_subject FROM ${schema}.users WHERE id=$1`, [legacy])).rows,
         [{ role: 'researcher', active: false, auth_subject: null }]);
       assert.equal((await owner.query(`SELECT count(*)::int AS n FROM ${schema}.login_accounts`)).rows[0].n, 0);
@@ -45,6 +45,9 @@ test('real PostgreSQL foundation integration (isolated disposable schema)', asyn
 
     await t.test('Drizzle schema: all columns, types, nullability, PK, unique, FK and check counts match SQL', async () => {
       const normalize = (type: string) => type.replace('timestamp with time zone','timestamptz');
+      const expectedTables=Object.values(tables).map(table=>getTableConfig(table).name).sort();
+      const actualTables=(await owner.query(`SELECT table_name FROM information_schema.tables WHERE table_schema=$1 AND table_type='BASE TABLE' AND table_name<>'migration_history' ORDER BY table_name`,[schema])).rows.map(row=>row.table_name);
+      assert.deepEqual(actualTables,expectedTables,'every application SQL table has exactly one Drizzle mapping');
       for (const table of Object.values(tables)) {
         const config = getTableConfig(table);
         const actual = await owner.query(`SELECT column_name, data_type, is_nullable FROM information_schema.columns
@@ -69,6 +72,42 @@ test('real PostgreSQL foundation integration (isolated disposable schema)', asyn
       const wrongUrl = new URL(appUrl); wrongUrl.pathname = '/boot_erp_dev';
       const wrong = new Client({ connectionString: wrongUrl.toString() });
       try { await assert.rejects(wrong.connect(), { code: '42501' }); } finally { await wrong.end(); }
+    });
+    await t.test('application/payment constraint names, foreign-key columns and ordered indexes match the mappings',async()=>{
+      const added=[tables.expenseApplications,tables.expenseSubmissionVersions,tables.expenseReviewNotes,tables.externalClaimLinks,
+        tables.externalClaimAttempts,tables.paymentRecords,tables.paymentRefunds,tables.refundRestorations,tables.settlementEvents];
+      for(const table of added) {
+        const config=getTableConfig(table);
+        const constraints=(await owner.query(`SELECT c.conname,c.contype,c.condeferrable,c.condeferred,
+          ARRAY(SELECT a.attname::text FROM unnest(c.conkey) WITH ORDINALITY k(num,pos) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num ORDER BY k.pos) AS columns,
+          f.relname AS foreign_table,
+          ARRAY(SELECT a.attname::text FROM unnest(c.confkey) WITH ORDINALITY k(num,pos) JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=k.num ORDER BY k.pos) AS foreign_columns
+          FROM pg_constraint c JOIN pg_class r ON r.oid=c.conrelid JOIN pg_namespace n ON n.oid=r.relnamespace
+          LEFT JOIN pg_class f ON f.oid=c.confrelid WHERE n.nspname=$1 AND r.relname=$2 AND c.contype IN ('p','u','f','c')`,[schema,config.name])).rows;
+        const names=[`${config.name}_pkey`,...config.uniqueConstraints.map(x=>x.name),...config.foreignKeys.map(x=>x.getName()),...config.checks.map(x=>x.name)].sort();
+        assert.deepEqual(constraints.map(row=>row.conname).sort(),names,`${config.name} constraint names`);
+        for(const foreign of config.foreignKeys) {
+          const ref=foreign.reference(),actual=constraints.find(row=>row.conname===foreign.getName());
+          assert.deepEqual(actual.columns,ref.columns.map(column=>column.name),`${foreign.getName()} columns`);
+          assert.equal(actual.foreign_table,getTableConfig(ref.foreignTable).name,`${foreign.getName()} target`);
+          assert.deepEqual(actual.foreign_columns,ref.foreignColumns.map(column=>column.name),`${foreign.getName()} target columns`);
+          const receipt=actual.foreign_table==='command_receipts';
+          assert.equal(actual.condeferrable,receipt,`${foreign.getName()} deferred audit FK`);
+          assert.equal(actual.condeferred,receipt,`${foreign.getName()} initially deferred audit FK`);
+        }
+        const indexes=(await owner.query(`SELECT i.relname AS name,ix.indisunique AS unique,
+          ARRAY(SELECT pg_get_indexdef(ix.indexrelid,pos,true)||CASE WHEN (ix.indoption[pos-1]&1)=1 THEN ' DESC' ELSE '' END FROM generate_series(1,ix.indnkeyatts) pos) AS columns
+          FROM pg_index ix JOIN pg_class i ON i.oid=ix.indexrelid JOIN pg_class r ON r.oid=ix.indrelid
+          JOIN pg_namespace n ON n.oid=r.relnamespace LEFT JOIN pg_constraint c ON c.conindid=ix.indexrelid
+          WHERE n.nspname=$1 AND r.relname=$2 AND c.oid IS NULL ORDER BY i.relname`,[schema,config.name])).rows;
+        const mapped=config.indexes.map(i=>{assert.ok(i.config.name);return {name:i.config.name,unique:i.config.unique,
+          columns:i.config.columns.map(column=>{
+            assert.ok('name'in column&&'indexConfig'in column,'new indexes use named columns');
+            assert.ok(column.indexConfig);
+            return column.name+(column.indexConfig.order==='desc'?' DESC':'');
+          })};}).sort((a,b)=>a.name.localeCompare(b.name));
+        assert.deepEqual(indexes,mapped,`${config.name} explicit index columns/order`);
+      }
     });
     await t.test('FK blocks cross-project budget association; amount and role checks reject invalid data', async () => {
       await assert.rejects(pool.query('INSERT INTO spend_cases(id,project_id,applicant_id,budget_line_id) VALUES($1,$2,$3,$4)', [randomUUID(), otherProject, actor, budget]), { code: '23503' });
@@ -187,10 +226,9 @@ test('real PostgreSQL foundation integration (isolated disposable schema)', asyn
   } finally {
     await pool.end();
     if (created) {
-      // Only this invocation's random schema, explicit objects, no shared tables or CASCADE.
-      for (const table of ['expense_files','expense_draft_versions','expense_policy_versions','expense_drafts','budget_events','spend_states','budget_files','budget_change_lines','budget_changes','budget_accounts','budget_code_versions','budget_codes','project_history','work_history','work_items','otp_credentials','oauth_flows','account_audit_events','auth_sessions','auth_identities','email_ownership_checks','login_accounts','audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history']) await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);
-      await owner.query(`DROP FUNCTION IF EXISTS ${schema}.reject_foundation_rewrite()`);await owner.query(`DROP FUNCTION IF EXISTS ${schema}.protect_budget_snapshot()`);
-      await owner.query(`DROP FUNCTION IF EXISTS ${schema}.protect_expense_draft()`);await owner.query(`DROP SCHEMA ${schema}`);
+      // Only the random, disposable schema created by this invocation. Never public or a shared database.
+      assert.match(schema,/^foundation_test_[0-9a-f]{32}$/);
+      await owner.query(`DROP SCHEMA ${schema} CASCADE`);
     }
     await owner.end();
   }

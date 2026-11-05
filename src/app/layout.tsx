@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: '부트 ERP · 개발 기반',
-  description: '과제와 비교과 업무를 위한 ERP 개발 환경',
+  title: 'BOOT ERP · 부트캠프 사업관리',
+  description: '과제·비교과·예산·지출 업무 관리',
   robots: { index: false, follow: false },
 };
 

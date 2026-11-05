@@ -1,5 +1,7 @@
 # 데이터·업무 흐름·금액 설계
 
+2026-11-06 구현 연결: EX-13~15/WF-01~04에 따라 `expense_applications`가 기존 초안과 `spend_cases/states`를 연결하고, `expense_submission_versions/review_notes`가 기준·서류·제출본·의견을 보존한다. `external_claim_links/attempts`, `payment_records/refunds`, `refund_restorations`, `settlement_events`는 각각 별도 사실/사건이다. 지급 누계는 환입으로 줄여 재지급 한도를 만들지 않으며 환입/복원은 별도 기록한다. 모든 금액은 정확한 정수 문자열/bigint, 날짜 DATE는 달력일 문자열로 유지한다. 현재 검수·운영 경계는 [F0 결과](qa/f0-evidence-2026-11-06.md)를 따른다.
+
 2026-10-18 사용자 예산 정책을 반영한 논리 설계다. 00~02 구현과 03 이후 설계를 구분한다. [예산 정책](budget-policy.md)과 [BC-01~BC-13](07-decisions.md)이 종전 사전신청·사후청구 제안을 대체한다. 기능 구현 상태는 [진행상황](STATUS.md)을 따른다.
 
 ## 1. 데이터와 관계

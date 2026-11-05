@@ -6,11 +6,18 @@ import { accountList,accountDetail,manageAccount,beginOtp,verifyOtp } from '../.
 import { projectList,projectDetail,manageProject,workList,workDetail,manageWork } from '../../../../server/work.ts';
 import { classificationList,manageClassification,allocateBudget,budgetList,changeList,changeDetail,manageBudgetChange,downloadBudgetFile } from '../../../../server/budgets.ts';
 import { draftList,draftDetail,saveDraft,attachDraftFile,downloadDraftFile,policyList,policyHistory,savePolicy } from '../../../../server/expenses.ts';
+import { dashboardOverview } from '../../../../server/dashboard.ts';
+import { dashboardCsv } from '../../../../lib/dashboard.ts';
+import { paymentList,paymentDetail,recordPayment,recordExternalClaim,settleCase } from '../../../../server/payments.ts';
+import { applicationList,applicationDetail,manageApplication } from '../../../../server/applications.ts';
 export const dynamic='force-dynamic';
 type Context={params:Promise<{path:string[]}>};
 const json=(value:unknown)=>Response.json(value,{headers:{'Cache-Control':'no-store'}});
 export async function GET(request:Request,context:Context) {
   try { const {path}=await context.params,pool=runtimePool(),token=readCookie(request),q=new URL(request.url).searchParams;
+    if(path[0]==='dashboard'&&path.length===1){const data=await dashboardOverview(pool,token,q);if(q.get('format')==='csv')return new Response(dashboardCsv(data),{headers:{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="budget-overview.csv"','Cache-Control':'no-store'}});return json(data);}
+    if(path[0]==='payments'&&path.length<=2)return json(path[1]?await paymentDetail(pool,token,path[1]):await paymentList(pool,token,q.get('project')??undefined));
+    if(path[0]==='applications'&&path.length<=2)return json(path[1]?await applicationDetail(pool,token,path[1]):await applicationList(pool,token,q.get('q')??''));
     if(path[0]==='expense-drafts'&&path.length<=2)return json(path[1]?await draftDetail(pool,token,path[1]):await draftList(pool,token,q.get('q')??''));
     if(path[0]==='expense-policies'&&path.length===1)return json(await policyList(pool,token));
     if(path[0]==='expense-policy-history'&&path.length===1)return json(await policyHistory(pool,token,q.get('type')??'',q.get('subtype')??''));
@@ -45,6 +52,10 @@ export async function POST(request:Request,context:Context) {
     if(path[0]==='expense-drafts')return json(await saveDraft(pool,token,input));
     if(path[0]==='expense-files')return json(await attachDraftFile(pool,token,input));
     if(path[0]==='expense-policies')return json(await savePolicy(pool,token,input));
+    if(path[0]==='payments')return json(await recordPayment(pool,token,input));
+    if(path[0]==='external-claims')return json(await recordExternalClaim(pool,token,input));
+    if(path[0]==='settlements')return json(await settleCase(pool,token,input));
+    if(path[0]==='applications')return json(await manageApplication(pool,token,input));
     if(path[0]==='budget-codes')return json(await manageClassification(pool,token,input));
     if(path[0]==='budgets')return json(await allocateBudget(pool,token,input));
     if(path[0]==='budget-changes')return json(await manageBudgetChange(pool,token,input));

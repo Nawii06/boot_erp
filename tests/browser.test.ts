@@ -39,15 +39,16 @@ try{
   browser=await chromium.launch({channel:'msedge',headless:true});
   const context=await browser.newContext({viewport:{width:1280,height:900}}),page=await context.newPage();
   page.setDefaultTimeout(15000);
+  page.on('dialog',dialog=>void dialog.accept());
   const pageErrors:string[]=[];page.on('pageerror',e=>pageErrors.push(e.message));
   await page.goto('http://localhost:3000');await expect(page.getByRole('button',{name:'Google 계정으로 로그인'})).toBeVisible();
   await mkdir('test-results',{recursive:true});await page.screenshot({path:'test-results/phase-02-login.png',fullPage:true});
   // Stop the old page's session polling before selecting a different fixture user.
   // The separate live account-replacement check below still exercises that polling.
-  const as=async(id:string)=>{await page.goto('about:blank');await context.clearCookies();await context.addCookies([{name:'boot_session',value:tokens[id],url:'http://localhost:3000',httpOnly:true,sameSite:'Lax'}]);await page.goto('http://localhost:3000');};
+  const as=async(id:string)=>{await page.goto('about:blank');await context.clearCookies();await context.addCookies([{name:'boot_session',value:tokens[id],url:'http://localhost:3000',httpOnly:true,sameSite:'Lax'}]);await page.goto('http://localhost:3000');await expect(page.getByRole('tab',{name:'대시보드',exact:true})).toBeVisible();const menu=page.getByRole('button',{name:/^(내 업무|전체 업무)$/});if(!await menu.isVisible())await page.getByRole('button',{name:'☰ 메뉴',exact:true}).click();await menu.click();if(!await menu.isVisible())await page.getByRole('button',{name:'☰ 메뉴',exact:true}).click();};
   await as(admin);await expect(page.getByRole('button',{name:'계정 관리',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'동료 비공개 업무',exact:true})).toBeVisible();
   await owner.query("UPDATE auth_sessions SET issued_at=issued_at-INTERVAL '6 minutes',expires_at=expires_at-INTERVAL '6 minutes' WHERE token_hash=$1",[hash(tokens[admin])]);
-  await page.getByRole('button',{name:'추가 본인 확인',exact:true}).click();
+  await page.getByText('사용자 메뉴',{exact:true}).click();await page.getByRole('button',{name:'추가 본인 확인',exact:true}).click();
   await page.getByRole('button',{name:'인증 앱 등록 키 보기',exact:true}).click();
   await expect(page.getByRole('status')).toContainText('인증 앱 등록 시간이 만료되었습니다');
   await expect(page.getByRole('button',{name:'Google로 다시 로그인',exact:true})).toBeVisible();
@@ -145,7 +146,7 @@ try{
   await page.getByLabel('목적·내용',{exact:true}).fill('가상 자료로만 시험');
   await page.getByLabel('저장·수정 사유',{exact:true}).fill('가상 초안 수정');
   await page.getByRole('button',{name:'초안 저장',exact:true}).click();
-  await expect(page.getByText('저장했습니다. 신청 제출·승인은 아직 제공하지 않습니다.',{exact:true})).toBeVisible();
+  await expect(page.getByText('저장했습니다. 제출·검토는 지출 신청 메뉴에서 진행하세요.',{exact:true})).toBeVisible();
   await expect(page.getByLabel('예산항목 (초안에서는 미선택 가능)',{exact:true})).toHaveValue(lineId);
   await page.getByLabel('자료 설명 (필수서류 자동 판정 없음)',{exact:true}).fill('가상 근거');
   await page.getByLabel('파일',{exact:true}).setInputFiles({name:'synthetic-expense.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.7\nsynthetic draft evidence\n%%EOF')});
@@ -177,13 +178,14 @@ try{
   await as(admin);
   // Same browser account replacement must clear old user's data before the next screen.
   await context.clearCookies();await context.addCookies([{name:'boot_session',value:tokens[researcher],url:'http://localhost:3000',httpOnly:true,sameSite:'Lax'}]);
+  await expect(page.locator('.role-badge')).toHaveText('연구원',{timeout:25000});
   await expect(page.getByRole('button',{name:'계정 관리',exact:true})).toHaveCount(0,{timeout:25000});
   await expect(page.getByRole('button',{name:'동료 비공개 업무',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'로그아웃',exact:true}).click();await expect(page.getByRole('button',{name:'Google 계정으로 로그인'})).toBeVisible();await page.goBack();await expect(page.getByRole('button',{name:'내 연구 업무',exact:true})).toHaveCount(0);
   assert.deepEqual(pageErrors,[]);
   console.log('Browser checks passed: phases 02/03 regression plus phase 04 draft create/edit, settings pending/verified, private upload/replacement/download, peer isolation, PI read-only and mobile layout. Synthetic screenshots only.');
-}catch(e){console.error(e instanceof Error?e.stack:'Browser checks failed');process.exitCode=1;}
+}catch(e){if(browser){for(const context of browser.contexts())for(const page of context.pages())await page.screenshot({path:'test-results/legacy-ui-failure.png',fullPage:true}).catch(()=>{});}console.error(e instanceof Error?e.stack:'Browser checks failed');process.exitCode=1;}
 finally{
   await browser?.close();if(child&&child.exitCode===null){child.kill();await once(child,'exit');}await pool.end();
-  if(created){for(const table of ['expense_files','expense_draft_versions','expense_policy_versions','expense_drafts','budget_events','spend_states','budget_files','budget_change_lines','budget_changes','budget_accounts','budget_code_versions','budget_codes','project_history','work_history','work_items','otp_credentials','oauth_flows','account_audit_events','auth_sessions','auth_identities','email_ownership_checks','login_accounts','audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history'])await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);await owner.query(`DROP FUNCTION IF EXISTS ${schema}.reject_foundation_rewrite()`);await owner.query(`DROP FUNCTION IF EXISTS ${schema}.protect_budget_snapshot()`);await owner.query(`DROP FUNCTION IF EXISTS ${schema}.protect_expense_draft()`);await owner.query(`DROP SCHEMA ${schema}`);}await owner.end();
+  if(created){if(!/^foundation_test_[0-9a-f]{32}$/.test(schema))throw new Error('Invalid disposable schema');await owner.query('DROP SCHEMA '+schema+' CASCADE');}await owner.end();
 }

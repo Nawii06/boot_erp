@@ -1,6 +1,7 @@
 'use client';
 import { useCallback,useEffect,useState } from 'react';
 import { expenseTypes } from '../lib/expense.ts';
+import { formSaved,requestFormLeave } from './form-state.ts';
 type Row=Record<string,unknown>;
 const s=(v:unknown)=>String(v??'');
 async function api(path:string,data?:Row) {
@@ -13,10 +14,10 @@ function Field({name,label,value,type='text',required=false,max=200}:{name:strin
     <input name={name} type={type} defaultValue={s(value)} required={required} maxLength={max}/>}</label>;
 }
 const numericFields=new Set(['amount','rate','caseLimit','periodLimit','deadlineDays']);
-export default function ExpensePanel({role,fail}:{role:string;fail:(e:unknown)=>void}) {
+export default function ExpensePanel({role,fail,initialTab='drafts',initialId=''}:{role:string;fail:(e:unknown)=>void;initialTab?:string;initialId?:string}) {
   const [rows,setRows]=useState<Row[]>([]),[work,setWork]=useState<Row[]>([]),[policies,setPolicies]=useState<Row[]>([]);
   const [detail,setDetail]=useState<Row|null>(null),[policy,setPolicy]=useState<Row|null>(null),[history,setHistory]=useState<Row[]>([]);
-  const [tab,setTab]=useState('drafts'),[query,setQuery]=useState(''),[workId,setWorkId]=useState(''),[lines,setLines]=useState<Row[]>([]);
+  const [tab,setTab]=useState(initialTab),[query,setQuery]=useState(''),[workId,setWorkId]=useState(''),[lines,setLines]=useState<Row[]>([]);
   const [type,setType]=useState('office'),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
   const write=role!=='principal_investigator',manage=['staff','admin'].includes(role);
   const item=detail?.item as Row|undefined,data=item?.data as Row|undefined;
@@ -26,17 +27,19 @@ export default function ExpensePanel({role,fail}:{role:string;fail:(e:unknown)=>
     setRows(r);setWork(w);setPolicies(p);
   },[query]);
   useEffect(()=>{void refresh().catch(fail);},[refresh,fail]);
+  useEffect(()=>{if(initialId)void open(initialId).catch(fail);},[initialId,fail]);
   useEffect(()=>{let valid=true;setLines([]);if(project)void api('budgets?project='+project).then(r=>{if(valid)setLines(r);}).catch(fail);return()=>{valid=false;};},[project,fail]);
-  async function open(id:string){const d=await api('expense-drafts/'+id);setDetail(d);setWorkId(d.item.work_id);setType(d.item.data.type);}
-  function reset(){setDetail(null);setWorkId('');setType('office');setNotice('');}
-  async function mutate(path:string,payload:Row) {
+  async function open(id:string,guard=true){if(guard&&!requestFormLeave())return;const d=await api('expense-drafts/'+id);setDetail(d);setWorkId(d.item.work_id);setType(d.item.data.type);}
+  function reset(){if(!requestFormLeave())return;setDetail(null);setWorkId('');setType('office');setNotice('');}
+  async function mutate(path:string,payload:Row,form?:HTMLFormElement) {
     setBusy(true);setNotice('');
     try {
       const result=await api(path,{...payload,requestId:crypto.randomUUID()});
       await refresh();
-      if(path!=='expense-policies')await open(result.id);
+      if(path!=='expense-policies')await open(result.id,false);
       else {setPolicy(null);setHistory([]);}
-      setNotice('저장했습니다. 신청 제출·승인은 아직 제공하지 않습니다.');
+      setNotice('저장했습니다. 제출·검토는 지출 신청 메뉴에서 진행하세요.');
+      if(form)formSaved(form);
     } catch(e) {fail(e);}
     finally{setBusy(false);}
   }
@@ -45,8 +48,8 @@ export default function ExpensePanel({role,fail}:{role:string;fail:(e:unknown)=>
   const files=(detail?.files??[]) as Row[];
   const latest=new Map<string,Row>();for(const f of files){const old=latest.get(s(f.slot_id));if(!old||BigInt(s(f.version))>BigInt(s(old.version)))latest.set(s(f.slot_id),f);}
   return <section aria-label="지출 초안과 기준 설정"><h1>지출 초안·증빙</h1>
-    <p className="warning">현재는 초안 저장과 첨부만 가능합니다. 예산은 차감되지 않으며 신청 제출·승인은 보류 중입니다. 유형별 필수서류도 아직 적용하지 않습니다.</p>
-    <nav aria-label="지출 메뉴"><button onClick={()=>setTab('drafts')}>초안 관리</button><button onClick={()=>setTab('policies')}>{manage?'단가·한도 설정':'단가·한도 기준'}</button></nav>
+    <p className="warning">이 화면에서는 초안과 증빙을 준비합니다. 초안 저장은 예산을 차감하지 않습니다. 지출 신청 메뉴에서 확정 기준과 유형별 필수서류를 확인한 뒤 제출할 때 예산을 차감합니다.</p>
+    <nav aria-label="지출 메뉴"><button onClick={()=>{if(requestFormLeave())setTab('drafts');}}>초안 관리</button><button onClick={()=>{if(requestFormLeave())setTab('policies');}}>{manage?'단가·한도 설정':'단가·한도 기준'}</button></nav>
     <p role="status">{notice}</p>
     {tab==='drafts'&&<>
       <form className="search" onSubmit={e=>{e.preventDefault();void refresh().catch(fail);}}><label>초안 제목 검색<input value={query} onChange={e=>setQuery(e.target.value)} maxLength={200}/></label><button>검색</button></form>
@@ -62,7 +65,7 @@ export default function ExpensePanel({role,fail}:{role:string;fail:(e:unknown)=>
       </article>}
       {write&&<form className="editor" key={s(item?.id)+s(item?.version)} onSubmit={e=>{
         e.preventDefault();const f=formData(e.currentTarget);
-        void mutate('expense-drafts',{...f,type,action:item?'edit':'create',...(item?{id:item.id,version:item.version}:{projectId:project,workId})});
+        void mutate('expense-drafts',{...f,type,action:item?'edit':'create',...(item?{id:item.id,version:item.version}:{projectId:project,workId})},e.currentTarget);
       }}>
         <h2>{item?'초안 수정':'초안 작성'}</h2>
         <label>배정 업무<select aria-label="배정 업무" required value={workId} disabled={!!item} onChange={e=>setWorkId(e.target.value)}><option value="">선택</option>{work.map(w=><option key={s(w.id)} value={s(w.id)}>{s(w.project_name)} · {s(w.title)}</option>)}</select></label>
@@ -85,14 +88,14 @@ export default function ExpensePanel({role,fail}:{role:string;fail:(e:unknown)=>
         <ul>{Array.from(latest.values()).map(f=><li key={s(f.id)}>{s(f.label)} · <a href={'/api/erp/expense-files/'+s(f.id)}>{s(f.filename)}</a> ({s(f.size)} bytes)</li>)}</ul>
         <details><summary>이전 첨부 포함 전체 이력</summary><ul>{files.map(f=><li key={s(f.id)}>{s(f.label)} · 버전 {s(f.version)} · <a href={'/api/erp/expense-files/'+s(f.id)}>{s(f.filename)}</a> · {s(f.reason)}</li>)}</ul></details>
         {write&&<form className="editor" key={'file'+s(item.version)} onSubmit={async e=>{
-          e.preventDefault();const f=new FormData(e.currentTarget),file=f.get('upload') as File;
+          e.preventDefault();const form=e.currentTarget,f=new FormData(form),file=f.get('upload') as File;
           if(!file?.size||file.size>5242880){setNotice('파일 크기는 1byte 이상 5MiB 이하로 선택해 주세요.');return;}
           setBusy(true);
           try {
             const bytes=new Uint8Array(await file.arrayBuffer());let binary='';
             for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
             await mutate('expense-files',{action:'attach',id:item.id,version:item.version,slotId:f.get('slotId')||undefined,reason:f.get('reason'),
-              file:{name:file.name,label:f.get('label'),content:btoa(binary)}});
+              file:{name:file.name,label:f.get('label'),content:btoa(binary)}},form);
           }catch(e){fail(e);}finally{setBusy(false);}
         }}>
           <label>추가·교체 대상<select aria-label="추가·교체 대상" name="slotId"><option value="">새 첨부 추가</option>{Array.from(latest.values()).map(f=><option key={s(f.slot_id)} value={s(f.slot_id)}>{s(f.label)} · {s(f.filename)} 교체</option>)}</select></label>
@@ -103,28 +106,37 @@ export default function ExpensePanel({role,fail}:{role:string;fail:(e:unknown)=>
       </article>}
     </>}
     {tab==='policies'&&<>
-      <h2>{manage?'단가·한도 설정':'단가·한도 기준'}</h2><p>빈 값은 확인 필요입니다. 확인 완료는 근거를 확인했다는 기록이며 신청 제출·승인을 활성화하지 않습니다.</p>
+      <h2>{manage?'단가·한도 설정':'단가·한도 기준'}</h2><p>빈 값은 확인 필요입니다. 제출·승인에는 해당 항목의 적용 여부와 근거·기간·수치가 확인된 기준이 필요합니다. 실제 기준을 확인하기 전 임의의 수치를 넣지 마세요.</p>
       <ul className="items">{policies.map(p=><li key={s(p.id)}><button onClick={async()=>{
+        if(!requestFormLeave())return;
         setPolicy(p);setHistory([]);if(role!=='researcher')try{setHistory(await api('expense-policy-history?type='+s(p.type_key)+'&subtype='+encodeURIComponent(s(p.subtype))));}catch(e){fail(e);}
       }}>{expenseTypes[s(p.type_key) as keyof typeof expenseTypes]} · {s(p.subtype)||'공통'} · 버전 {s(p.version)} · {(p.data as Row).status==='verified'?'확인 완료':'확인 필요'}</button></li>)}</ul>
       {!policies.length&&<p>등록된 조회 가능 기준이 없습니다. 제한 없음이라는 뜻은 아닙니다.</p>}
-      {policy&&<article className="detail"><h3>선택한 기준</h3><dl>{Object.entries(policyData).map(([k,v])=><div key={k}><dt>{policyLabels[k]??k}</dt><dd>{s(v)||'확인 필요'}</dd></div>)}</dl>
+      {policy&&<article className="detail"><h3>선택한 기준</h3><dl>{Object.entries(policyData).map(([k,v])=><div key={k}><dt>{policyLabels[k]??policyExtraLabels[k]??k}</dt><dd>{s(v)||'확인 필요'}</dd></div>)}</dl>
         {history.length>0&&<details><summary>기준 변경 이력</summary>{history.map(h=><div key={s(h.id)}>버전 {s(h.version)} · {s(h.reason)}<pre>{JSON.stringify(h.data,null,2)}</pre></div>)}</details>}</article>}
-      {manage&&<><button onClick={()=>{setPolicy(null);setHistory([]);}}>새 기준</button>
+      {manage&&<><button onClick={()=>{if(requestFormLeave()){setPolicy(null);setHistory([]);}}}>새 기준</button>
         <form className="editor" key={s(policy?.id)||'new-policy'} onSubmit={e=>{
           e.preventDefault();const f=formData(e.currentTarget);
-          void mutate('expense-policies',{...f,action:'policy',type:policy?.type_key??f.type,subtype:policy?.subtype??f.subtype,version:policy?.version??''});
+          void mutate('expense-policies',{...f,action:'policy',type:policy?.type_key??f.type,subtype:policy?.subtype??f.subtype,version:policy?.version??''},e.currentTarget);
         }}>
           <label>유형<select aria-label="유형" name="type" defaultValue={s(policy?.type_key)||'office'} disabled={!!policy}>{Object.entries(expenseTypes).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
           {!policy&&<Field name="subtype" label="세부 구분 (예: 국내, 업체)" />}
           <label>확인 상태<select aria-label="확인 상태" name="status" defaultValue={s(policyData.status)||'pending'}><option value="pending">확인 필요</option><option value="verified">확인 완료</option></select></label>
-          {Object.entries(policyLabels).filter(([k])=>!['status','calendar'].includes(k)).map(([k,label])=><Field key={k} name={k} label={label+(numericFields.has(k)?' (정수)':'')} value={policyData[k]} type={['startsOn','endsOn'].includes(k)?'date':'text'} max={500}/>)}
+          <p>신청일 기준으로 적용합니다. 아래 항목을 모두 확인해 적용 또는 근거상 해당 없음을 선택해야 제출할 수 있습니다. 실제 수치·지원 범위는 확인된 자료로만 입력하세요.</p>
+          {([['rateMode','단가 적용'],['caseLimitMode','건별 한도 적용'],['periodLimitMode','기간별 한도 적용'],['deadlineMode','기한 적용']] as const).map(([name,label])=><label key={name}>{label}<select name={name} defaultValue={s(policyData[name])||'pending'}><option value="pending">확인 필요</option><option value="apply">적용 (값 필수)</option><option value="not_applicable">근거상 해당 없음</option></select></label>)}
+          <label>계산 단위<select name="calculationUnit" defaultValue={s(policyData.calculationUnit)||'flat'}>{[['flat','총액'],['per_item','수량'],['per_person','인원'],['per_day','일수'],['per_person_day','인원 × 일수'],['per_hour','시간']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+          <label>기간 한도 합산 기준<select name="periodBasis" defaultValue={s(policyData.periodBasis)||'business_period'}><option value="business_period">사업 사용기간</option><option value="calendar_month">신청일의 달력월</option></select></label>
+          <Field name="personnelScope" label="연구인력지원비 확인된 지원 범위 (해당 유형 필수)" value={policyData.personnelScope} max={500}/>
+          <Field name="holidayDates" label="영업일 계산 제외일 (YYYY-MM-DD, 쉼표 또는 줄바꿈)" type="textarea" value={Array.isArray(policyData.holidayDates)?policyData.holidayDates.join('\n'):''} max={5000}/>
+          <label>기한 기준 사건<select name="deadlineEvent" defaultValue={s(policyData.deadlineEvent)||''}><option value="">확인 필요</option><option value="before_use">사용일 전 신청기한</option></select></label>
+          {Object.entries(policyLabels).filter(([k])=>!['status','calendar','deadlineEvent'].includes(k)).map(([k,label])=><Field key={k} name={k} label={label+(numericFields.has(k)?' (정수)':'')} value={policyData[k]} type={['startsOn','endsOn'].includes(k)?'date':'text'} max={500}/>)}
           <label>기한 일수 기준<select aria-label="기한 일수 기준" name="calendar" defaultValue={s(policyData.calendar)}><option value="">확인 필요</option><option value="calendar">달력일</option><option value="business">영업일</option></select></label>
           <Field name="reason" label="기준 등록·변경 사유" required max={1000}/><button disabled={busy}>기준 버전 저장</button>
         </form></>}
     </>}
   </section>;
 }
+const policyExtraLabels:Record<string,string>={rateMode:'단가 적용',caseLimitMode:'건별 한도 적용',periodLimitMode:'기간별 한도 적용',deadlineMode:'기한 적용',calculationUnit:'수식 계산 단위',periodBasis:'기간 한도 기준',personnelScope:'연구인력 지원 범위',holidayDates:'비영업일'};
 const policyLabels:Record<string,string>={status:'확인 상태',unit:'계산 단위',rate:'단가 (원)',caseLimit:'건별 한도 (원)',periodLimit:'기간별 한도 (원)',
   limitPeriod:'한도 집계 기간',deadlineEvent:'기한 기준 사건',deadlineDays:'기한 일수',calendar:'일수 기준',
   source:'근거 자료명',sourceVersion:'자료 버전',clause:'근거 항목',startsOn:'적용 시작일',endsOn:'적용 종료일'};

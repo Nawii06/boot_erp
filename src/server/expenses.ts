@@ -7,6 +7,7 @@ import { jsonValue } from '../lib/money.ts';
 import { expenseType,draftData,policyData,optionalText } from '../lib/expense.ts';
 import { transaction } from './transaction.ts';
 import { authenticate,manager,hash,type Actor } from './security.ts';
+import { guardApplicationDraftWrite } from './applications.ts';
 
 type Input=Record<string,unknown>;
 function fail(code:AppError['code']='CONFLICT'):never {throw new AppError(code);}
@@ -41,8 +42,8 @@ async function receipt(c:PoolClient,a:Actor,input:Input,run:()=>Promise<unknown>
   return result;
 }
 async function audit(c:PoolClient,a:Actor,input:Input,id:string,project:string|null,before:unknown,after:unknown) {
-  await c.query(`INSERT INTO budget_events(id,project_id,entity_id,actor_id,request_id,action,reason,before_state,after_state)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[randomUUID(),project,id,a.id,uuid(input.requestId),`expense.${input.action}`,
+  await c.query(`INSERT INTO budget_events(id,project_id,entity_id,actor_id,request_id,action,reason,before_state,after_state,created_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp())`,[randomUUID(),project,id,a.id,uuid(input.requestId),`expense.${input.action}`,
     textInput(input.reason,1000),jsonValue(before),jsonValue(after)]);
 }
 export async function draftList(pool:Pool,token:string,search='') {
@@ -66,11 +67,13 @@ export async function saveDraft(pool:Pool,token:string,input:Input) {
     const create=input.action==='create',id=create?randomUUID():uuid(input.id);
     const d=create?{project_id:uuid(input.projectId),work_id:uuid(input.workId)}:await accessDraft(c,a,id);
     await accessWork(c,a,d.project_id,d.work_id);
+    await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`budget:${d.project_id}`]);
     await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`expense:${id}`]);
     return receipt(c,a,input,async()=>{
       const before=create?null:(await c.query(`${visible} WHERE d.id=$1 FOR UPDATE OF d`,[id])).rows[0];
       if(before && input.version!==before.version)fail();
-      const data=draftData(input),line=input.lineId?uuid(input.lineId):null,policy=input.policyVersionId?uuid(input.policyVersionId):null;
+      const data={...(before?.data??{}),...draftData(input)},line=input.lineId?uuid(input.lineId):null,policy=input.policyVersionId?uuid(input.policyVersionId):null;
+      if(!create)await guardApplicationDraftWrite(c,id,data,line,policy);
       if(line && !(await c.query(`SELECT 1 FROM budget_accounts b JOIN budget_lines l ON l.id=b.line_id WHERE l.id=$1 AND l.project_id=$2`,[line,d.project_id])).rowCount)fail('FORBIDDEN');
       if(policy) {
         const p=(await c.query('SELECT * FROM expense_policy_versions WHERE id=$1',[policy])).rows[0];
@@ -121,10 +124,12 @@ export async function attachDraftFile(pool:Pool,token:string,input:Input) {
     const a=await authenticate(c,token,true);if(a.role==='principal_investigator')fail('FORBIDDEN');
     if(input.action!=='attach')fail('UNAVAILABLE');
     const id=uuid(input.id),d=await accessDraft(c,a,id);
+    await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`budget:${d.project_id}`]);
     await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`expense:${id}`]);
     return receipt(c,a,input,async()=>{
       const before=(await c.query('SELECT * FROM expense_drafts WHERE id=$1 FOR UPDATE',[id])).rows[0];
       if(input.version!==before.version)fail();
+      await guardApplicationDraftWrite(c,id);
       const f=fileData(input.file),slot=input.slotId?uuid(input.slotId):randomUUID();
       const files=(await c.query(`SELECT DISTINCT ON(slot_id) id,slot_id,version,octet_length(content) AS size
         FROM expense_files WHERE draft_id=$1 ORDER BY slot_id,version DESC`,[id])).rows;

@@ -32,7 +32,7 @@ test('phase 03: budget integrity and private files on real PostgreSQL and HTTP h
   const file={name:'synthetic.pdf',content:Buffer.from('%PDF-1.7\nsynthetic attachment only\n%%EOF').toString('base64')};
   await owner.connect();
   try{
-    await owner.query(`CREATE SCHEMA ${schema}`);created=true;assert.equal(await migrate(ownerUrl,schema),5);
+    await owner.query(`CREATE SCHEMA ${schema}`);created=true;assert.equal(await migrate(ownerUrl,schema),7);
     await owner.query(`GRANT USAGE ON SCHEMA ${schema} TO boot_erp_test_app`);
     await owner.query(`GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA ${schema} TO boot_erp_test_app`);
     await owner.query(`REVOKE ALL ON ${schema}.migration_history FROM boot_erp_test_app`);await owner.query(`SET search_path TO ${schema},public`);
@@ -47,6 +47,7 @@ test('phase 03: budget integrity and private files on real PostgreSQL and HTTP h
     const sub=await ok('budget-codes',staff.token,input({action:'create',level:2,code:'N90.01',name:'Synthetic subcategory',parentId:cat.id,active:true,effectiveOn:'2026-03-01'}));
     const detail=await ok('budget-codes',staff.token,input({action:'create',level:3,code:'N90.01.001',name:'Synthetic detail',parentId:sub.id,active:true,effectiveOn:'2026-03-01'}));
     const codes=await ok('budget-codes',ra.token),codeVersionId=codes.find((c:{id:string})=>c.id===detail.id).version_id;
+    assert.equal(codes.find((c:{id:string})=>c.id===detail.id).effective_on,'2026-03-01');
     async function fixture(values=['1000000','1000000']){
       const project=randomUUID(),workA=randomUUID(),workB=randomUUID();
       await owner.query("INSERT INTO projects(id,code,name,kind,business_year) VALUES($1,$2,'Synthetic project','research',2026)",[project,project]);
@@ -68,6 +69,7 @@ test('phase 03: budget integrity and private files on real PostgreSQL and HTTP h
     async function changeAction(f:F,id:string,action:string,token=staff.token){const v=(await owner.query('SELECT version FROM budget_changes WHERE id=$1',[id])).rows[0].version;return ok('budget-changes',token,input({projectId:f.project,id,action,version:v}));}
     await t.test('B-01: parallel 800k submissions against 1m accept exactly one, with atomic receipt and balance',async()=>{
       const f=await fixture(),a=await spend(f),b=await spend(f,rb.token,'800000',f.workB);
+      const dateBalance=(await balances(f))[0];assert.equal(dateBalance.period_start,'2026-03-01');assert.equal(dateBalance.period_end,'2026-12-31');
       const results=await Promise.all([call('budget-spend',ra.token,input({projectId:f.project,id:a.id,action:'submit',version:'0'})),call('budget-spend',rb.token,input({projectId:f.project,id:b.id,action:'submit',version:'0'}))]);
       assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
       assert.equal((await balances(f)).find((x:{id:string})=>x.id===f.lines[0]).available_amount,'200000');
@@ -170,12 +172,17 @@ test('phase 03: budget integrity and private files on real PostgreSQL and HTTP h
       assert.equal((await call('budgets',staff.token,input({projectId:f.project,codeVersionId,label:'inactive',fund:'Synthetic',amount:'1'}))).status,400);
       assert.equal((await call('budget-codes',staff.token,input({action:'create',level:3,code:'N90.01.002',name:'Bad parent',parentId:cat.id,active:true,effectiveOn:'2026-03-01'}))).status,400);
       assert.equal((await call('budget-codes',pi.token,input({action:'update',id:detail.id}))).status,403);
+      // A DATE effective today in KST must be usable even before UTC reaches that calendar day.
+      const today=(await owner.query("SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date::text AS today")).rows[0].today;
+      const sameDay=await ok('budget-codes',staff.token,input({action:'create',level:3,code:'N90.01.003',name:'Synthetic same-day detail',parentId:sub.id,active:true,effectiveOn:today}));
+      const sameDayCode=(await ok('budget-codes',staff.token)).find((c:{id:string})=>c.id===sameDay.id);
+      assert.equal(sameDayCode.effective_on,today);
+      await ok('budgets',staff.token,input({projectId:f.project,codeVersionId:sameDayCode.version_id,label:'Synthetic same-day line',fund:'Synthetic fund',amount:'1'}));
       assert.equal(await migrate(ownerUrl,schema),0);
     });
   }finally{
     await pool.end();if(created){
-      for(const table of ['expense_files','expense_draft_versions','expense_policy_versions','expense_drafts','budget_events','spend_states','budget_files','budget_change_lines','budget_changes','budget_accounts','budget_code_versions','budget_codes','project_history','work_history','work_items','otp_credentials','oauth_flows','account_audit_events','auth_sessions','auth_identities','email_ownership_checks','login_accounts','audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history'])await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);
-      await owner.query(`DROP FUNCTION ${schema}.protect_budget_snapshot()`);await owner.query(`DROP FUNCTION ${schema}.reject_foundation_rewrite()`);await owner.query(`DROP FUNCTION IF EXISTS ${schema}.protect_expense_draft()`);await owner.query(`DROP SCHEMA ${schema}`);
+      assert.match(schema,/^foundation_test_[0-9a-f]{32}$/);await owner.query(`DROP SCHEMA ${schema} CASCADE`);
     }await owner.end();
   }
 });

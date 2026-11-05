@@ -20,8 +20,8 @@ async function projectAccess(c: PoolClient, a: Actor, id: string) {
   return p;
 }
 async function event(c: PoolClient, a: Actor, input: Input, action: string, entity: string, project: string | null, before: unknown, after: unknown) {
-  await c.query(`INSERT INTO budget_events(id,project_id,entity_id,actor_id,request_id,action,reason,before_state,after_state)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [randomUUID(),project,entity,a.id,uuid(input.requestId),action,textInput(input.reason,1000),jsonValue(before),jsonValue(after)]);
+  await c.query(`INSERT INTO budget_events(id,project_id,entity_id,actor_id,request_id,action,reason,before_state,after_state,created_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp())`, [randomUUID(),project,entity,a.id,uuid(input.requestId),action,textInput(input.reason,1000),jsonValue(before),jsonValue(after)]);
 }
 // Per-project serialisation coordinates every allocation/change/deduction. Separate projects remain concurrent.
 async function budgetCommand(pool: Pool, token: string, input: Input, action: string,
@@ -42,7 +42,7 @@ async function budgetCommand(pool: Pool, token: string, input: Input, action: st
     return result;
   });
 }
-const latestCodes = `SELECT b.id,b.code,b.level,v.id AS version_id,v.version,v.parent_id,v.name,v.active,v.effective_on
+const latestCodes = `SELECT b.id,b.code,b.level,v.id AS version_id,v.version,v.parent_id,v.name,v.active,v.effective_on::text AS effective_on
   FROM budget_codes b JOIN LATERAL (SELECT * FROM budget_code_versions WHERE code_id=b.id ORDER BY version DESC LIMIT 1) v ON true`;
 export async function classificationList(pool: Pool, token: string) {
   return transaction(pool,async c => { await authenticate(c,token); return (await c.query(latestCodes+' ORDER BY b.code')).rows; });
@@ -73,10 +73,11 @@ export async function manageClassification(pool: Pool, token: string, input: Inp
 }
 async function classificationSnapshot(c: PoolClient, id: string) {
   const rows = (await c.query(latestCodes)).rows;
+  const today=(await c.query("SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date::text AS today")).rows[0].today;
   const chain = []; let current = rows.find(r=>r.version_id===id);
   if (!current || current.level!==3) fail('INVALID_INPUT');
   for (let level=3;level>=1;level--) {
-    if (!current || current.level!==level || !current.active || new Date(current.effective_on)>new Date()) fail('INVALID_INPUT');
+    if (!current || current.level!==level || !current.active || current.effective_on>today) fail('INVALID_INPUT');
     chain.unshift(current); current = rows.find(r=>r.id===current.parent_id);
   }
   return chain;
@@ -99,7 +100,7 @@ export async function budgetList(pool: Pool, token: string, project: string) {
   return transaction(pool,async c=>{
     const a=await authenticate(c,token);await projectAccess(c,a,project);
     // Only shared master balances; no applicant names, spend counts or other researchers' records.
-    return (await c.query(`SELECT l.id,l.internal_label,l.original_amount,b.*, (b.current_amount-b.committed_amount)::text AS available_amount
+    return (await c.query(`SELECT l.id,l.internal_label,l.original_amount,b.*,b.period_start::text AS period_start,b.period_end::text AS period_end, (b.current_amount-b.committed_amount)::text AS available_amount
       FROM budget_lines l JOIN budget_accounts b ON b.line_id=l.id WHERE l.project_id=$1 ORDER BY l.created_at,l.id`,[project])).rows;
   });
 }

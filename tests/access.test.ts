@@ -40,7 +40,7 @@ test('phase 02: real PostgreSQL and HTTP handlers with synthetic accounts',async
   });
   await owner.connect();
   try{
-    await owner.query(`CREATE SCHEMA ${schema}`);created=true;assert.equal(await migrate(ownerUrl,schema),5);
+    await owner.query(`CREATE SCHEMA ${schema}`);created=true;assert.equal(await migrate(ownerUrl,schema),7);
     await owner.query(`GRANT USAGE ON SCHEMA ${schema} TO boot_erp_test_app`);
     await owner.query(`GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA ${schema} TO boot_erp_test_app`);
     await owner.query(`REVOKE ALL ON ${schema}.migration_history FROM boot_erp_test_app`);await owner.query(`SET search_path TO ${schema},public`);
@@ -218,8 +218,7 @@ test('phase 02: real PostgreSQL and HTTP handlers with synthetic accounts',async
     });
   }finally{
     if(server.listening)await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));await pool.end();
-    if(created){for(const table of ['expense_files','expense_draft_versions','expense_policy_versions','expense_drafts','budget_events','spend_states','budget_files','budget_change_lines','budget_changes','budget_accounts','budget_code_versions','budget_codes','project_history','work_history','work_items','otp_credentials','oauth_flows','account_audit_events','auth_sessions','auth_identities','email_ownership_checks','login_accounts','audit_events','command_receipts','spend_cases','budget_lines','project_memberships','projects','users','people','migration_history'])await owner.query(`DROP TABLE IF EXISTS ${schema}.${table}`);
-      await owner.query(`DROP FUNCTION IF EXISTS ${schema}.reject_foundation_rewrite()`);await owner.query(`DROP FUNCTION IF EXISTS ${schema}.protect_budget_snapshot()`);await owner.query(`DROP FUNCTION IF EXISTS ${schema}.protect_expense_draft()`);await owner.query(`DROP SCHEMA ${schema}`);}
+    if(created){assert.match(schema,/^foundation_test_[0-9a-f]{32}$/);await owner.query(`DROP SCHEMA ${schema} CASCADE`);}
     await owner.end();
   }
 });

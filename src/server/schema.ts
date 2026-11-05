@@ -181,3 +181,114 @@ export const expenseFiles = pgTable('expense_files', {
   version:bigint('version',{mode:'bigint'}).notNull(),filename:text('filename').notNull(),label:text('label').notNull(),sha256:text('sha256').notNull(),
   content:bytea('content').notNull(),actorId:uuid('actor_id').notNull().references(()=>users.id),reason:text('reason').notNull(),createdAt:createdAt(),
 },t=>[unique().on(t.draftId,t.slotId,t.version),check('expense_file_version',sql`${t.version} >= 0`),check('expense_file_hash',sql`${t.sha256} ~ '^[0-9a-f]{64}$'`),check('expense_file_size',sql`octet_length(${t.content}) BETWEEN 1 AND 5242880`),check('expense_file_reason',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),index('expense_files_draft_idx').on(t.draftId)]);
+
+// Applications keep immutable submitted snapshots; SQL owns their append-only triggers.
+export const expenseApplications = pgTable('expense_applications', {
+  id:uuid('id').primaryKey(),draftId:uuid('draft_id').notNull(),createdBy:uuid('created_by').notNull(),createdAt:createdAt(),
+},t=>[
+  unique('expense_applications_draft_id_key').on(t.draftId),
+  foreignKey({name:'expense_applications_id_fkey',columns:[t.id],foreignColumns:[spendCases.id]}),
+  foreignKey({name:'expense_applications_draft_id_fkey',columns:[t.draftId],foreignColumns:[expenseDrafts.id]}),
+  foreignKey({name:'expense_applications_created_by_fkey',columns:[t.createdBy],foreignColumns:[users.id]}),
+]);
+export const expenseSubmissionVersions = pgTable('expense_submission_versions', {
+  id:uuid('id').primaryKey(),applicationId:uuid('application_id').notNull(),version:bigint('version',{mode:'bigint'}).notNull(),
+  draftVersion:bigint('draft_version',{mode:'bigint'}).notNull(),policyVersionId:uuid('policy_version_id').notNull(),applicableOn:date('applicable_on').notNull(),
+  data:jsonb('data').notNull(),policySnapshot:jsonb('policy_snapshot').notNull(),filesSnapshot:jsonb('files_snapshot').notNull(),
+  actorId:uuid('actor_id').notNull(),reason:text('reason').notNull(),createdAt:createdAt(),
+},t=>[
+  unique('expense_submission_versions_application_id_version_key').on(t.applicationId,t.version),
+  foreignKey({name:'expense_submission_versions_application_id_fkey',columns:[t.applicationId],foreignColumns:[expenseApplications.id]}),
+  foreignKey({name:'expense_submission_versions_policy_version_id_fkey',columns:[t.policyVersionId],foreignColumns:[expensePolicyVersions.id]}),
+  foreignKey({name:'expense_submission_versions_actor_id_fkey',columns:[t.actorId],foreignColumns:[users.id]}),
+  check('expense_submission_versions_version_check',sql`${t.version}>=0`),check('expense_submission_versions_draft_version_check',sql`${t.draftVersion}>=0`),
+  check('expense_submission_versions_data_check',sql`jsonb_typeof(${t.data})='object'`),check('expense_submission_versions_policy_snapshot_check',sql`jsonb_typeof(${t.policySnapshot})='object'`),
+  check('expense_submission_versions_files_snapshot_check',sql`jsonb_typeof(${t.filesSnapshot})='array'`),check('expense_submission_versions_reason_check',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),
+  index('expense_submission_application_idx').on(t.applicationId,t.version.desc()),
+]);
+export const expenseReviewNotes = pgTable('expense_review_notes', {
+  id:uuid('id').primaryKey(),applicationId:uuid('application_id').notNull(),submissionId:uuid('submission_id').notNull(),documentKind:text('document_kind').notNull(),
+  outcome:text('outcome').notNull(),note:text('note').notNull(),actorId:uuid('actor_id').notNull(),createdAt:createdAt(),
+},t=>[
+  foreignKey({name:'expense_review_notes_application_id_fkey',columns:[t.applicationId],foreignColumns:[expenseApplications.id]}),
+  foreignKey({name:'expense_review_notes_submission_id_fkey',columns:[t.submissionId],foreignColumns:[expenseSubmissionVersions.id]}),
+  foreignKey({name:'expense_review_notes_actor_id_fkey',columns:[t.actorId],foreignColumns:[users.id]}),
+  check('expense_review_notes_outcome_check',sql`${t.outcome} IN ('note','missing','accepted')`),check('expense_review_notes_note_check',sql`length(btrim(${t.note})) BETWEEN 1 AND 2000`),
+  index('expense_review_application_idx').on(t.applicationId,t.createdAt),
+]);
+
+export const externalClaimLinks = pgTable('external_claim_links', {
+  caseId:uuid('case_id').primaryKey(),documentNumber:text('document_number').notNull(),actorId:uuid('actor_id').notNull(),createdAt:createdAt(),
+},t=>[
+  unique('external_claim_links_document_number_key').on(t.documentNumber),
+  foreignKey({name:'external_claim_links_case_id_fkey',columns:[t.caseId],foreignColumns:[spendStates.caseId]}),
+  foreignKey({name:'external_claim_links_actor_id_fkey',columns:[t.actorId],foreignColumns:[users.id]}),
+  check('external_claim_links_document_number_check',sql`length(btrim(${t.documentNumber})) BETWEEN 1 AND 200`),
+]);
+export const externalClaimAttempts = pgTable('external_claim_attempts', {
+  id:uuid('id').primaryKey(),caseId:uuid('case_id').notNull(),projectId:uuid('project_id').notNull(),kind:text('kind').notNull(),occurredOn:date('occurred_on').notNull(),
+  evidence:text('evidence').notNull(),actorId:uuid('actor_id').notNull(),requestId:uuid('request_id').notNull(),reason:text('reason').notNull(),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().default(sql`clock_timestamp()`),
+},t=>[
+  unique('external_claim_attempts_actor_id_request_id_key').on(t.actorId,t.requestId),
+  foreignKey({name:'external_claim_attempts_case_id_fkey',columns:[t.caseId],foreignColumns:[externalClaimLinks.caseId]}),
+  foreignKey({name:'external_claim_attempts_project_id_fkey',columns:[t.projectId],foreignColumns:[projects.id]}),
+  foreignKey({name:'external_claim_attempts_actor_id_fkey',columns:[t.actorId],foreignColumns:[users.id]}),
+  foreignKey({name:'external_claim_attempts_actor_id_request_id_fkey',columns:[t.actorId,t.requestId],foreignColumns:[commandReceipts.actorId,commandReceipts.requestId]}),
+  foreignKey({name:'external_claim_attempts_case_id_project_id_fkey',columns:[t.caseId,t.projectId],foreignColumns:[spendCases.id,spendCases.projectId]}),
+  check('external_claim_attempts_kind_check',sql`${t.kind} IN ('submitted','rejected','resubmitted')`),check('external_claim_attempts_evidence_check',sql`length(btrim(${t.evidence})) BETWEEN 1 AND 1000`),
+  check('external_claim_attempts_reason_check',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),index('external_claim_attempt_case_idx').on(t.caseId,t.createdAt,t.id),
+]);
+export const paymentRecords = pgTable('payment_records', {
+  id:uuid('id').primaryKey(),caseId:uuid('case_id').notNull(),projectId:uuid('project_id').notNull(),grossAmount:bigint('gross_amount',{mode:'bigint'}).notNull(),
+  withheldAmount:bigint('withheld_amount',{mode:'bigint'}).notNull(),netAmount:bigint('net_amount',{mode:'bigint'}).notNull(),paidOn:date('paid_on').notNull(),
+  evidence:text('evidence').notNull(),actorId:uuid('actor_id').notNull(),requestId:uuid('request_id').notNull(),reason:text('reason').notNull(),createdAt:createdAt(),
+},t=>[
+  unique('payment_records_actor_id_request_id_key').on(t.actorId,t.requestId),unique('payment_records_id_case_id_key').on(t.id,t.caseId),
+  foreignKey({name:'payment_records_case_id_fkey',columns:[t.caseId],foreignColumns:[externalClaimLinks.caseId]}),
+  foreignKey({name:'payment_records_project_id_fkey',columns:[t.projectId],foreignColumns:[projects.id]}),
+  foreignKey({name:'payment_records_actor_id_fkey',columns:[t.actorId],foreignColumns:[users.id]}),
+  foreignKey({name:'payment_records_actor_id_request_id_fkey',columns:[t.actorId,t.requestId],foreignColumns:[commandReceipts.actorId,commandReceipts.requestId]}),
+  foreignKey({name:'payment_records_case_id_project_id_fkey',columns:[t.caseId,t.projectId],foreignColumns:[spendCases.id,spendCases.projectId]}),
+  check('payment_records_gross_amount_check',sql`${t.grossAmount}>0`),check('payment_records_withheld_amount_check',sql`${t.withheldAmount}>=0`),check('payment_records_net_amount_check',sql`${t.netAmount}>=0`),
+  check('payment_records_evidence_check',sql`length(btrim(${t.evidence})) BETWEEN 1 AND 1000`),check('payment_records_reason_check',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),
+  check('payment_records_check',sql`${t.withheldAmount}::numeric+${t.netAmount}::numeric=${t.grossAmount}`),index('payment_records_case_idx').on(t.caseId,t.paidOn,t.id),
+]);
+export const paymentRefunds = pgTable('payment_refunds', {
+  id:uuid('id').primaryKey(),paymentId:uuid('payment_id').notNull(),caseId:uuid('case_id').notNull(),projectId:uuid('project_id').notNull(),amount:bigint('amount',{mode:'bigint'}).notNull(),
+  refundedOn:date('refunded_on').notNull(),evidence:text('evidence').notNull(),actorId:uuid('actor_id').notNull(),requestId:uuid('request_id').notNull(),reason:text('reason').notNull(),createdAt:createdAt(),
+},t=>[
+  unique('payment_refunds_actor_id_request_id_key').on(t.actorId,t.requestId),unique('payment_refunds_id_case_id_key').on(t.id,t.caseId),
+  foreignKey({name:'payment_refunds_case_id_fkey',columns:[t.caseId],foreignColumns:[spendStates.caseId]}),
+  foreignKey({name:'payment_refunds_project_id_fkey',columns:[t.projectId],foreignColumns:[projects.id]}),
+  foreignKey({name:'payment_refunds_actor_id_fkey',columns:[t.actorId],foreignColumns:[users.id]}),
+  foreignKey({name:'payment_refunds_payment_id_case_id_fkey',columns:[t.paymentId,t.caseId],foreignColumns:[paymentRecords.id,paymentRecords.caseId]}),
+  foreignKey({name:'payment_refunds_case_id_project_id_fkey',columns:[t.caseId,t.projectId],foreignColumns:[spendCases.id,spendCases.projectId]}),
+  foreignKey({name:'payment_refunds_actor_id_request_id_fkey',columns:[t.actorId,t.requestId],foreignColumns:[commandReceipts.actorId,commandReceipts.requestId]}),
+  check('payment_refunds_amount_check',sql`${t.amount}>0`),check('payment_refunds_evidence_check',sql`length(btrim(${t.evidence})) BETWEEN 1 AND 1000`),
+  check('payment_refunds_reason_check',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),index('payment_refunds_case_idx').on(t.caseId,t.refundedOn,t.id),
+]);
+export const refundRestorations = pgTable('refund_restorations', {
+  refundId:uuid('refund_id').primaryKey(),caseId:uuid('case_id').notNull(),restoredOn:date('restored_on').notNull(),actorId:uuid('actor_id').notNull(),
+  requestId:uuid('request_id').notNull(),reason:text('reason').notNull(),createdAt:createdAt(),
+},t=>[
+  unique('refund_restorations_actor_id_request_id_key').on(t.actorId,t.requestId),
+  foreignKey({name:'refund_restorations_actor_id_fkey',columns:[t.actorId],foreignColumns:[users.id]}),
+  foreignKey({name:'refund_restorations_refund_id_case_id_fkey',columns:[t.refundId,t.caseId],foreignColumns:[paymentRefunds.id,paymentRefunds.caseId]}),
+  foreignKey({name:'refund_restorations_actor_id_request_id_fkey',columns:[t.actorId,t.requestId],foreignColumns:[commandReceipts.actorId,commandReceipts.requestId]}),
+  check('refund_restorations_reason_check',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),
+]);
+export const settlementEvents = pgTable('settlement_events', {
+  id:uuid('id').primaryKey(),caseId:uuid('case_id').notNull(),projectId:uuid('project_id').notNull(),action:text('action').notNull(),
+  actorId:uuid('actor_id').notNull(),requestId:uuid('request_id').notNull(),reason:text('reason').notNull(),
+  createdAt:timestamp('created_at',{withTimezone:true}).notNull().default(sql`clock_timestamp()`),
+},t=>[
+  unique('settlement_events_actor_id_request_id_key').on(t.actorId,t.requestId),
+  foreignKey({name:'settlement_events_case_id_fkey',columns:[t.caseId],foreignColumns:[spendStates.caseId]}),
+  foreignKey({name:'settlement_events_project_id_fkey',columns:[t.projectId],foreignColumns:[projects.id]}),
+  foreignKey({name:'settlement_events_actor_id_fkey',columns:[t.actorId],foreignColumns:[users.id]}),
+  foreignKey({name:'settlement_events_case_id_project_id_fkey',columns:[t.caseId,t.projectId],foreignColumns:[spendCases.id,spendCases.projectId]}),
+  foreignKey({name:'settlement_events_actor_id_request_id_fkey',columns:[t.actorId,t.requestId],foreignColumns:[commandReceipts.actorId,commandReceipts.requestId]}),
+  check('settlement_events_action_check',sql`${t.action} IN ('close','reopen')`),check('settlement_events_reason_check',sql`length(btrim(${t.reason})) BETWEEN 1 AND 1000`),
+  index('settlement_events_case_idx').on(t.caseId,t.createdAt,t.id),
+]);

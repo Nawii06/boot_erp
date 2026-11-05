@@ -34,7 +34,18 @@ export function draftData(input: Record<string,unknown>) {
 }
 export function policyData(input: Record<string,unknown>) {
   if(!['pending','verified'].includes(String(input.status))) throw new AppError('INVALID_INPUT');
+  const ruleMode=(name:string)=>{const value=input[name]??'pending';if(!['pending','apply','not_applicable'].includes(String(value)))throw new AppError('INVALID_INPUT');return String(value);};
+  const calculationUnit=optionalText(input.calculationUnit,40)||'flat';
+  if(!['flat','per_item','per_person','per_day','per_person_day','per_hour'].includes(calculationUnit))throw new AppError('INVALID_INPUT');
+  const periodBasis=optionalText(input.periodBasis,40)||'business_period';
+  if(!['business_period','calendar_month'].includes(periodBasis))throw new AppError('INVALID_INPUT');
+  const rawHolidays=input.holidayDates;
+  const holidayDates=typeof rawHolidays==='string'?rawHolidays.split(/[\s,]+/).filter(Boolean):rawHolidays??[];
+  if(!Array.isArray(holidayDates)||holidayDates.length>366)throw new AppError('INVALID_INPUT');
+  const holidays=holidayDates.map(value=>{const date=optionalDate(value);if(!date)throw new AppError('INVALID_INPUT');return date;});
   const data={status:String(input.status),unit:optionalText(input.unit,100),
+    rateMode:ruleMode('rateMode'),caseLimitMode:ruleMode('caseLimitMode'),periodLimitMode:ruleMode('periodLimitMode'),deadlineMode:ruleMode('deadlineMode'),
+    calculationUnit,periodBasis,personnelScope:optionalText(input.personnelScope,500),holidayDates:[...new Set(holidays)].sort(),
     rate:optionalWon(input.rate),caseLimit:optionalWon(input.caseLimit),periodLimit:optionalWon(input.periodLimit),
     limitPeriod:optionalText(input.limitPeriod,200),deadlineEvent:optionalText(input.deadlineEvent,200),
     deadlineDays:optionalWon(input.deadlineDays),calendar:optionalText(input.calendar,20),
@@ -45,7 +56,11 @@ export function policyData(input: Record<string,unknown>) {
   if (data.deadlineDays!==null && (!data.deadlineEvent||!data.calendar)) throw new AppError('INVALID_INPUT');
   if (data.periodLimit!==null&&!data.limitPeriod) throw new AppError('INVALID_INPUT');
   if (data.rate!==null&&!data.unit) throw new AppError('INVALID_INPUT');
+  for(const [mode,value] of [[data.rateMode,data.rate],[data.caseLimitMode,data.caseLimit],[data.periodLimitMode,data.periodLimit],[data.deadlineMode,data.deadlineDays]]) {
+    if(mode==='apply'&&value===null)throw new AppError('INVALID_INPUT');
+  }
   if(data.status==='verified' && (!data.source||!data.sourceVersion||!data.clause||!data.startsOn ||
-    [data.rate,data.caseLimit,data.periodLimit,data.deadlineDays].every(v=>v===null))) throw new AppError('INVALID_INPUT');
+    ([data.rate,data.caseLimit,data.periodLimit,data.deadlineDays].every(v=>v===null)&&
+      ![data.rateMode,data.caseLimitMode,data.periodLimitMode,data.deadlineMode].every(mode=>mode==='not_applicable')))) throw new AppError('INVALID_INPUT');
   return data;
 }
