@@ -3,9 +3,15 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from './schema.ts';
 import { AppError } from '../lib/errors.ts';
+import { getPreviewConfig } from '../lib/preview-config.ts';
 
 let pool: Pool | undefined;
 export function runtimePool(): Pool {
+  try {
+    const preview=getPreviewConfig();
+    if(!preview&&(process.env.BOOT_ERP_PREVIEW_SCHEMA||
+      new URL(process.env.DATABASE_URL??'').searchParams.getAll('options').some(value=>value.includes('boot_preview_'))))throw new Error();
+  } catch { throw new AppError('UNAVAILABLE'); }
   if (!process.env.DATABASE_URL || process.env.MIGRATION_DATABASE_URL) throw new AppError('UNAVAILABLE');
   if (!pool) {
     pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000 });

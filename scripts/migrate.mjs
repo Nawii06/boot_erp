@@ -7,7 +7,8 @@ export async function migrate(connectionString, schema = 'public', count) {
   const database = new URL(connectionString).pathname.slice(1);
   if (!['boot_erp_dev','boot_erp_test'].includes(database)) throw new Error('Invalid migration target');
   assertLocalDatabase(connectionString, database, 'owner');
-  if (schema !== 'public' && !/^foundation_test_[0-9a-f]{32}$/.test(schema)) throw new Error('Invalid schema');
+  if (schema !== 'public' && !/^foundation_test_[0-9a-f]{32}$/.test(schema) &&
+      !(database === 'boot_erp_test' && /^boot_preview_[0-9a-f]{32}$/.test(schema))) throw new Error('Invalid schema');
   if (count !== undefined && (schema === 'public' || !Number.isSafeInteger(count) || count < 1)) throw new Error('Migration count is limited to isolated test schemas');
   const client = new pg.Client({ connectionString });
   await client.connect();

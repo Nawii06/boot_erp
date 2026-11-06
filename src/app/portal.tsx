@@ -11,6 +11,7 @@ import { formSaved } from './form-state.ts';
 
 type Row=Record<string,unknown>;
 type Session={id:string;email:string;role:string;expiresAt:string;idleExpiresAt:string;stepUpUntil:string|null;otpReady:boolean;serverTime:string};
+type Preview={enabled:true;expiresAt:string;roles:string[]};
 const names:Record<string,string>={researcher:'연구원',principal_investigator:'과제책임자',staff:'담당자',admin:'관리자'};
 const s=(value:unknown)=>value===null||value===undefined?'':String(value);
 const when=(value:unknown)=>value?new Date(s(value)).toLocaleString('ko-KR'):'';
@@ -27,6 +28,7 @@ function Editor({fields,submit,label='저장'}:{fields:Field[];submit:(data:Row)
 }
 const reason:Field={name:'reason',label:'등록·변경 사유',type:'textarea'};
 export default function Portal(){
+  const[preview,setPreview]=useState<Preview|null>(null),[previewRole,setPreviewRole]=useState('staff'),[previewBusy,setPreviewBusy]=useState(false);
   const[user,setUser]=useState<Session|null>(null),[checking,setChecking]=useState(true),[tab,setTab]=useState<PortalPage>('dashboard'),[notice,setNotice]=useState(''),[needsReauth,setNeedsReauth]=useState(false);
   const[tabs,setTabs]=useState<PortalPage[]>(['dashboard']),[initialDraft,setInitialDraft]=useState(''),[refreshKey,setRefreshKey]=useState(0);
   const dirtyForms=useRef(new Set<HTMLFormElement>()),content=useRef<HTMLDivElement>(null);
@@ -34,6 +36,7 @@ export default function Portal(){
   const[detail,setDetail]=useState<Row|null>(null),[selected,setSelected]=useState<Row|null>(null),[query,setQuery]=useState(''),[otpSecret,setOtpSecret]=useState('');
   const[now,setNow]=useState(Date.now()),currentId=useRef(''),offset=useRef(0),lastTouch=useRef(0);
   const manage=!!user&&['staff','admin'].includes(user.role);
+  useEffect(()=>{const controller=new AbortController();void fetch('/api/auth/preview',{cache:'no-store',signal:controller.signal}).then(async response=>{if(response.ok){const value=await response.json();if(!controller.signal.aborted&&value.enabled===true)setPreview(value);}}).catch(()=>{});return()=>controller.abort();},[]);
   const clear=useCallback(()=>{setNeedsReauth(false);setUser(null);setProjects([]);setWork([]);setAccounts([]);setDetail(null);setSelected(null);setOtpSecret('');setTab('dashboard');setTabs(['dashboard']);setInitialDraft('');dirtyForms.current.clear();currentId.current='';},[]);
   const fail=useCallback((e:unknown)=>{const code=e instanceof Error?e.message:'UNAVAILABLE';setNotice(errors[code]??errors.UNAVAILABLE);setNeedsReauth(code==='REAUTH_REQUIRED');if(code==='UNAUTHENTICATED')clear();},[clear]);
   const session=useCallback(async()=>{try{const a:Session=await api('/api/session');if(currentId.current&&currentId.current!==a.id){clear();location.reload();return;}currentId.current=a.id;offset.current=new Date(a.serverTime).getTime()-Date.now();setUser(a);}catch(e){clear();if(e instanceof Error&&e.message!=='UNAUTHENTICATED')fail(e);}finally{setChecking(false);}},[clear,fail]);
@@ -64,6 +67,7 @@ export default function Portal(){
   function closePage(page:PortalPage){if(page==='dashboard')return;if(page===tab&&!navigate('dashboard'))return;setTabs(old=>old.filter(value=>value!==page));}
   async function change(path:string,data:Row){try{await api('/api/erp/'+path,{...data,requestId:crypto.randomUUID()});setNotice('처리했습니다.');setSelected(null);setDetail(null);await session();await refresh();setRefreshKey(n=>n+1);return true;}catch(e){fail(e);return false;}}
   async function login(){try{const r=await api('/api/auth/google/start',{});clear();location.assign(r.url);}catch(e){fail(e);}}
+  async function previewLogin(){setPreviewBusy(true);try{await api('/api/auth/preview',{role:previewRole});clear();location.replace('/');}catch(e){fail(e);}finally{setPreviewBusy(false);}}
   async function signout(all:boolean){if(!canLeave())return;try{await api('/api/erp/logout',{all});clear();location.replace('/');}catch(e){fail(e);}}
   async function open(kind:string,row:Row){if(!canLeave())return;dirtyForms.current.clear();try{setSelected(row);setDetail(await api('/api/erp/'+kind+'/'+s(row.id)));}catch(e){fail(e);}}
   const idle=user?Math.min(new Date(user.idleExpiresAt).getTime(),new Date(user.expiresAt).getTime())-(now+offset.current):0;
@@ -74,7 +78,8 @@ export default function Portal(){
   const historyRows=Array.isArray(detail?.history)?detail.history as Row[]:[];
   return <PortalShell role={user?.role} roleLabel={user?names[user.role]:undefined} email={user?.email} page={tab} tabs={tabs} onNavigate={navigate} onClose={closePage} onLogout={all=>void signout(all)}><div ref={content} onInputCapture={event=>{const target=event.target;if(target instanceof HTMLElement){const form=target.closest('form.editor');if(form instanceof HTMLFormElement)dirtyForms.current.add(form);}}}>
     <div role="status" aria-live="polite" className="message">{notice}{needsReauth&&<button onClick={()=>void login()}>Google로 다시 로그인</button>}</div>
-    {checking?<p>로그인 상태 확인 중…</p>:!user?<section className="intro"><p className="eyebrow">과제 · 비교과 업무 관리</p><h1>배정된 업무를<br/>한곳에서 확인하세요.</h1><p>사전 등록하고 이메일 소유 확인을 마친 계정만 이용할 수 있습니다.</p><button onClick={()=>void login()}>Google 계정으로 로그인</button><p>Google 계정 분실은 Google 복구 절차를 이용하고, ERP 계정 연결 문제는 담당자에게 문의하세요.</p></section>:<>
+    {preview&&<aside className="preview-notice" aria-label="임시 접속 안내">임시 접속 · 가상자료 환경입니다. 실제 업무자료를 입력하지 마세요. <span>종료 예정: {new Date(preview.expiresAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})}</span></aside>}
+    {checking?<p>로그인 상태 확인 중…</p>:!user?<section className="intro"><p className="eyebrow">과제 · 비교과 업무 관리</p><h1>배정된 업무를<br/>한곳에서 확인하세요.</h1>{preview?<><p>Google 인증 없이 역할을 선택해 임시로 둘러볼 수 있습니다.</p><div className="preview-login"><label>접속 역할<select aria-label="임시 접속 역할" value={previewRole} onChange={e=>setPreviewRole(e.target.value)}>{preview.roles.map(role=><option key={role} value={role}>{names[role]??role}</option>)}</select></label><button className="primary" disabled={previewBusy} onClick={()=>void previewLogin()}>{previewBusy?'접속 중…':'임시 접속'}</button></div><p>모든 계정·예산·신청은 가상자료입니다. 로그아웃 후 다른 역할로 접속할 수 있습니다.</p></>:<><p>사전 등록하고 이메일 소유 확인을 마친 계정만 이용할 수 있습니다.</p><button onClick={()=>void login()}>Google 계정으로 로그인</button><p>Google 계정 분실은 Google 복구 절차를 이용하고, ERP 계정 연결 문제는 담당자에게 문의하세요.</p></>}</section>:<>
       {tab!=='dashboard'&&<div className="toolbar"><button onClick={()=>{void refresh();setRefreshKey(n=>n+1);}}>새로고침</button></div>}
       {idle<=120000&&<div className="warning" role="alert">{idle<=0?'로그인 시간이 만료되었습니다.':'2분 이내에 로그인이 만료됩니다.'} <button onClick={()=>void api('/api/erp/activity',{}).then(session).catch(fail)}>계속 사용</button><span>최대 8시간은 연장되지 않습니다.</span></div>}
       {tab==='dashboard'&&<DashboardPanel key={user.id} fail={fail} navigate={navigate} openDraft={id=>{if(navigate('applications'))setInitialDraft(id);}} refreshKey={refreshKey}/>}

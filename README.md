@@ -6,6 +6,8 @@
 
 현재 PC 설정과 검증 결과: [Windows 환경 인수](docs/current-environment.md). `npm.cmd run doctor`로 런타임·비공개 설정 준비 상태를 확인합니다.
 
+Google 없는 로컬 임시 접속: [사용 안내](docs/local-preview.md). 빌드 후 `.\scripts\app.cmd run preview`로 별도의 가상자료 환경을 실행하고 `http://localhost:3000`에서 **임시 접속**을 선택합니다. 종료는 `.\scripts\app.cmd run preview:stop`이며 실제 자료를 입력하지 않습니다.
+
 산공과제·비교과 프로그램의 예산, 사용신청, 청구, 증빙, 대학 ERP 실청구 및 지급·정산을 관리하기 위한 웹 ERP 프로젝트입니다.
 
 **현재 상태: P0~P7 독립 구현·로컬 검증 및 F0 판정 수행, G1 미완료.** 이미지 기준 UI와 신청·보완·승인·수동 실청구·지급/환입·대시보드를 구현했습니다. 초안은 미차감, 제출은 1회 차감하며 실제 기준이 미설정/초과인 업무는 제출·승인을 차단합니다. 현재 PC의 실제 Google 인증과 운영 환경 검증은 남아 있습니다. [진행상황](docs/STATUS.md), [사용 안내](docs/user-guide.md), [운영 안내](docs/operations-runbook.md), [F0 증거](docs/qa/f0-evidence-2026-11-06.md)를 확인합니다. 실제 입력 P8·Notion P9·운영 배포는 수행하지 않았습니다.
